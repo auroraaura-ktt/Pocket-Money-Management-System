@@ -1,0 +1,322 @@
+{% extends "budget/base.html" %}
+{% load currency_tags %}
+
+{% block title %}Dashboard - Pocket Money{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto p-4 md:p-8">
+    <h1 class="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
+    <p class="text-gray-500 mb-8">Manage your budget by 10-day periods and track daily expenses.</p>
+
+    <div class="flex gap-2 mb-6 border-b border-gray-200">
+        <a href="?tab=setup" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'setup' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">1. Setup</a>
+        <a href="?tab=budget" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'budget' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">2. Period Budget</a>
+        <a href="?tab=expenses" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'expenses' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">3. Daily Expenses</a>
+    </div>
+
+    {% if tab == 'setup' %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Register User</h3>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="register_user">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                    {{ user_form.name }}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Email (for reports)</label>
+                    {{ user_form.email }}
+                </div>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Register</button>
+            </form>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Create Monthly Budget</h3>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="create_budget">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">User</label>
+                    {{ budget_form.user }}
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Year</label>
+                        {{ budget_form.year }}
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Month</label>
+                        {{ budget_form.month }}
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Total Money (MMK)</label>
+                    {{ budget_form.total_money }}
+                </div>
+                <p class="text-sm text-gray-500 mb-4">Creates 3 default categories: Days 1-10, Days 11-20, Days 21-end.</p>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Create Budget Month</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Your Budget Months</h3>
+        {% if budget_months %}
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="bg-gray-100">
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">User</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Total Money</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period Categories</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bm in budget_months %}
+                    <tr class="border-b border-gray-100">
+                        <td class="px-4 py-3">{{ bm.user.name }}</td>
+                        <td class="px-4 py-3">{{ bm.month_label }}</td>
+                        <td class="px-4 py-3 text-right font-medium">{{ bm.total_money|mmk }}</td>
+                        <td class="px-4 py-3 text-right">{{ bm.categories.count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-gray-500 text-center py-8">No budget months yet.</p>
+        {% endif %}
+    </div>
+
+    {% elif tab == 'budget' %}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">Set Period Budget Estimates</h3>
+            <p class="text-sm text-gray-500 mb-4">Enter how much you plan to spend in each 10-day period.</p>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="save_period_budget">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
+                    {{ period_budget_form.budget_month }}
+                </div>
+                <div class="space-y-4 mb-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Days 1-10 (MMK)</label>
+                        {{ period_budget_form.period_1 }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Days 11-20 (MMK)</label>
+                        {{ period_budget_form.period_2 }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Days 21-end (MMK)</label>
+                        {{ period_budget_form.period_3 }}
+                    </div>
+                </div>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Save Period Budgets</button>
+            </form>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Current Period Budgets</h3>
+            {% if categories %}
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="bg-gray-100">
+                            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Month</th>
+                            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period</th>
+                            <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Estimated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cat in categories %}
+                        <tr class="border-b border-gray-100">
+                            <td class="px-4 py-3 text-sm text-gray-600">{{ cat.budget_month.month_label }}</td>
+                            <td class="px-4 py-3 font-medium">{{ cat.name }}</td>
+                            <td class="px-4 py-3 text-right">{{ cat.estimated_amount|mmk }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-gray-500 text-center py-8">Create a budget month first — period categories are added automatically.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% elif tab == 'expenses' %}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">Add Daily Expense</h3>
+            <p class="text-sm text-gray-500 mb-4">Choose one of the 3 period categories: Days 1-10, Days 11-20, or Days 21-end. The date must match the period.</p>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_expense">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
+                    {{ expense_form.budget_month }}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Period Category</label>
+                    {{ expense_form.category }}
+                    {% if expense_form.category.errors %}<p class="text-red-600 text-sm mt-1">{{ expense_form.category.errors.0 }}</p>{% endif %}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                    {{ expense_form.expense_date }}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
+                    {{ expense_form.amount }}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Note (optional)</label>
+                    {{ expense_form.note }}
+                </div>
+                {% if expense_form.non_field_errors %}
+                <p class="text-red-600 text-sm mb-4">{{ expense_form.non_field_errors.0 }}</p>
+                {% endif %}
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Add Expense</button>
+            </form>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Recent Expenses by Period</h3>
+            {% if expenses %}
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="bg-gray-100">
+                            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Date</th>
+                            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period</th>
+                            <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for exp in expenses %}
+                        <tr class="border-b border-gray-100">
+                            <td class="px-4 py-3 text-sm">{{ exp.expense_date }}</td>
+                            <td class="px-4 py-3">{{ exp.category.name }}</td>
+                            <td class="px-4 py-3 text-right font-medium">{{ exp.amount|mmk }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-gray-500 text-center py-8">No expenses recorded yet.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-1">Budget vs Actual by Period</h3>
+                <p class="text-sm text-gray-500">Compare period budget estimates against actual expenses for each category.</p>
+            </div>
+            {% if budget_months %}
+            <form method="get" class="flex items-end gap-3">
+                <input type="hidden" name="tab" value="expenses">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
+                    <select name="expense_month" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" onchange="this.form.submit()">
+                        {% for bm in budget_months %}
+                        <option value="{{ bm.id }}" {% if expense_comparison_month and bm.id == expense_comparison_month.id %}selected{% endif %}>{{ bm.month_label }} — {{ bm.user.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+
+        {% if period_comparisons %}
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="bg-gray-100">
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period Category</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Budget Estimate</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Actual Spent</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Status</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Difference</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for period in period_comparisons %}
+                    <tr class="border-b border-gray-100">
+                        <td class="px-4 py-3 font-medium">
+                            {{ period.period_label }}
+                            <span class="block text-xs text-gray-500">Day {{ period.start_day }} – {{ period.end_day }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-right">{{ period.budget_amount|mmk }}</td>
+                        <td class="px-4 py-3 text-right">{{ period.actual_amount|mmk }}</td>
+                        <td class="px-4 py-3 text-right font-semibold {% if period.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ period.status|title }}</td>
+                        <td class="px-4 py-3 text-right font-semibold {% if period.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ period.difference|mmk }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-gray-500 text-center py-8">Create a budget month and add expenses to see the comparison.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const monthSelect = document.getElementById('expense-budget-month');
+    const categorySelect = document.getElementById('expense-category');
+    const dateInput = document.getElementById('expense-date');
+    if (!monthSelect || !categorySelect) return;
+
+    let categories = [];
+
+    function periodIndexForDay(day) {
+        if (day <= 10) return 1;
+        if (day <= 20) return 2;
+        return 3;
+    }
+
+    function autoSelectCategory() {
+        if (!dateInput || !dateInput.value || categories.length === 0) return;
+        const day = parseInt(dateInput.value.split('-')[2], 10);
+        const index = periodIndexForDay(day);
+        const match = categories.find(c => c.period_index === index);
+        if (match) categorySelect.value = match.id;
+    }
+
+    async function loadCategories(monthId) {
+        if (!monthId) {
+            categorySelect.innerHTML = '<option value="">Select period...</option>';
+            categories = [];
+            return;
+        }
+        const resp = await fetch(`/api/categories/${monthId}/`);
+        const data = await resp.json();
+        categories = data.categories;
+        categorySelect.innerHTML = '<option value="">Select period...</option>';
+        data.categories.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat.id;
+            opt.textContent = cat.name;
+            categorySelect.appendChild(opt);
+        });
+        autoSelectCategory();
+    }
+
+    monthSelect.addEventListener('change', () => loadCategories(monthSelect.value));
+    if (dateInput) dateInput.addEventListener('change', autoSelectCategory);
+    if (monthSelect.value) loadCategories(monthSelect.value);
+});
+</script>
+{% endblock %}
