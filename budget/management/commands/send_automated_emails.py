@@ -6,13 +6,13 @@ from budget.services.automated_email_service import process_automated_emails
 
 
 class Command(BaseCommand):
-    help = "Send automated period and monthly report emails."
+    help = "Send automated category and monthly report emails."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--force",
             action="store_true",
-            help="Force send all period reports and monthly full report, ignoring schedule.",
+            help="Force send all category reports and monthly full report, ignoring schedule.",
         )
 
     def handle(self, *args, **options):

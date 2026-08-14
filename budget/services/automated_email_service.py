@@ -46,7 +46,7 @@ def _send_period_email(budget_month: BudgetMonth, period_index: int) -> bool:
         _log_sent(budget_month.id, report_type)
         logger.info(
             "Sent %s report to %s for %s",
-            period.period_label,
+            period.category_name,
             user.email,
             budget_month.month_label,
         )

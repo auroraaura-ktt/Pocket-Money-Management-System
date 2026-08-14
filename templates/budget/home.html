@@ -5,7 +5,7 @@
 {% block content %}
 <div class="text-center py-20 px-4">
     <h1 class="text-5xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Pocket Money Management System</h1>
-    <p class="text-lg text-gray-500 max-w-2xl mx-auto mb-8">Track your budget estimates against actual daily spending. Get deficit and surplus reports every 10 days and at month end — delivered to your email.</p>
+    <p class="text-lg text-gray-500 max-w-2xl mx-auto mb-8">Track your budget estimates against actual daily spending. Get deficit and surplus reports for each category and at month end — delivered to your email.</p>
     <a href="{% url 'budget:dashboard' %}" class="inline-block bg-blue-600 hover:bg-blue-700 text-white text-lg font-semibold px-10 py-4 rounded-xl transition">Get Started</a>
 </div>
 
@@ -14,17 +14,17 @@
         <div class="text-center p-8">
             <div class="text-4xl mb-4">📊</div>
             <h3 class="text-lg font-semibold text-gray-900 mb-2">Budget Planning</h3>
-            <p class="text-gray-500">Set your total money and budget estimates for each 10-day period of the month.</p>
+            <p class="text-gray-500">Set your total money and budget estimates for each category of the month.</p>
         </div>
         <div class="text-center p-8">
             <div class="text-4xl mb-4">📝</div>
             <h3 class="text-lg font-semibold text-gray-900 mb-2">Daily Tracking</h3>
-            <p class="text-gray-500">Log money used each day; expenses are grouped into Days 1-10, 11-20, or 21-end automatically.</p>
+            <p class="text-gray-500">Log money used each day; expenses are grouped into categories automatically.</p>
         </div>
         <div class="text-center p-8">
             <div class="text-4xl mb-4">📧</div>
             <h3 class="text-lg font-semibold text-gray-900 mb-2">Smart Reports</h3>
-            <p class="text-gray-500">Automatic deficit/surplus analysis every 10 days and monthly summary emailed to you.</p>
+            <p class="text-gray-500">Automatic deficit/surplus analysis for each category and monthly summary emailed to you.</p>
         </div>
     </div>
 
@@ -32,9 +32,9 @@
         <h3 class="text-xl font-semibold text-gray-900 mb-4">How It Works</h3>
         <ol class="list-decimal pl-6 space-y-2 text-gray-700">
             <li><strong>Add Total Money</strong> — Enter the total amount of money available for the month.</li>
-            <li><strong>Set Period Budgets</strong> — Enter estimated amounts for Days 1-10, Days 11-20, and Days 21-end.</li>
-            <li><strong>Track Daily Expenses</strong> — Record spending each day; it is grouped into the matching period automatically.</li>
-            <li><strong>Review Reports</strong> — Compare each period's budget estimate against actual spending (deficit/surplus).</li>
+            <li><strong>Set Category Budgets</strong> — Enter estimated amounts for each category (e.g. Days 1-10, Days 11-20, Days 21-end, or custom categories like Shopping).</li>
+            <li><strong>Track Daily Expenses</strong> — Record spending each day; it is grouped into the matching category automatically.</li>
+            <li><strong>Review Reports</strong> — Compare each category's budget estimate against actual spending (deficit/surplus).</li>
             <li><strong>Monthly Summary</strong> — Compare total actual spending against your total money and receive an email report.</li>
         </ol>
     </div>

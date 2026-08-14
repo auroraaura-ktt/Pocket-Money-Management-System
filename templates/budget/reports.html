@@ -6,7 +6,7 @@
 {% block content %}
 <div class="max-w-7xl mx-auto p-4 md:p-8">
     <h1 class="text-3xl font-bold text-gray-900 mb-2">Reports</h1>
-    <p class="text-gray-500 mb-8">Compare period budget estimates vs actual spending for each 10-day block.</p>
+    <p class="text-gray-500 mb-8">Compare category budget estimates vs actual spending.</p>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
         <form method="get" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
@@ -44,12 +44,12 @@
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-        <h2 class="text-xl font-semibold text-gray-900 mb-4">Period Comparison (Budget vs Actual)</h2>
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Category Comparison (Budget vs Actual)</h2>
         <div class="overflow-x-auto">
             <table class="w-full">
                 <thead>
                     <tr class="bg-gray-100">
-                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Budget Estimate</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Actual Spent</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Status</th>
@@ -57,16 +57,18 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for period in report.period_reports %}
+                    {% for item in report.period_reports %}
                     <tr class="border-b border-gray-100">
                         <td class="px-4 py-3 font-medium">
-                            {{ period.period_label }}
-                            <span class="block text-xs text-gray-500">Day {{ period.start_day }} – {{ period.end_day }}</span>
+                            {{ item.category_name }}
+                            {% if item.start_day is not None %}
+                            <span class="block text-xs text-gray-500">Day {{ item.start_day }} – {{ item.end_day }}</span>
+                            {% endif %}
                         </td>
-                        <td class="px-4 py-3 text-right">{{ period.budget_amount|mmk }}</td>
-                        <td class="px-4 py-3 text-right">{{ period.actual_amount|mmk }}</td>
-                        <td class="px-4 py-3 text-right font-semibold {% if period.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ period.status|title }}</td>
-                        <td class="px-4 py-3 text-right font-semibold {% if period.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ period.difference|mmk }}</td>
+                        <td class="px-4 py-3 text-right">{{ item.budget_amount|mmk }}</td>
+                        <td class="px-4 py-3 text-right">{{ item.actual_amount|mmk }}</td>
+                        <td class="px-4 py-3 text-right font-semibold {% if item.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ item.status|title }}</td>
+                        <td class="px-4 py-3 text-right font-semibold {% if item.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ item.difference|mmk }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>

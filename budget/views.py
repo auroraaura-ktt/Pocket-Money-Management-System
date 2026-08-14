@@ -8,6 +8,7 @@ from django.views.decorators.http import require_GET
 
 from budget.forms import (
     BudgetMonthForm,
+    CustomCategoryBudgetForm,
     DailyExpenseForm,
     PeriodBudgetForm,
     ReportSelectForm,
@@ -38,6 +39,7 @@ def dashboard(request):
     user_form = UserForm()
     budget_form = BudgetMonthForm()
     period_budget_form = PeriodBudgetForm()
+    custom_budget_form = CustomCategoryBudgetForm()
     expense_form = DailyExpenseForm()
 
     if request.method == "POST":
@@ -53,18 +55,33 @@ def dashboard(request):
         elif action == "create_budget":
             budget_form = BudgetMonthForm(request.POST)
             if budget_form.is_valid():
-                budget_form.save()
+                budget_month = budget_form.save()
                 messages.success(
                     request,
-                    "Monthly budget created with default period categories (Days 1-10, 11-20, 21-end).",
+                    f"Monthly budget created for {budget_month.month_label} "
+                    f"with total {budget_month.total_money} MMK.",
                 )
                 return redirect("budget:dashboard")
 
         elif action == "save_period_budget":
             period_budget_form = PeriodBudgetForm(request.POST)
             if period_budget_form.is_valid():
-                period_budget_form.save()
-                messages.success(request, "Period budget estimates saved.")
+                budget_month = period_budget_form.save()
+                messages.success(
+                    request,
+                    f"Budget estimates saved for {budget_month.month_label}. "
+                    f"Total money updated to {budget_month.total_money} MMK.",
+                )
+                return _dashboard_redirect("budget")
+
+        elif action == "save_custom_category_budget":
+            custom_budget_form = CustomCategoryBudgetForm(request.POST)
+            if custom_budget_form.is_valid():
+                category = custom_budget_form.save()
+                messages.success(
+                    request,
+                    f"Budget for '{category.name}' set to {category.estimated_amount} MMK.",
+                )
                 return _dashboard_redirect("budget")
 
         elif action == "add_expense":
@@ -86,7 +103,7 @@ def dashboard(request):
         "categories"
     )
     categories = BudgetCategory.objects.select_related("budget_month").order_by(
-        "budget_month", "period_index"
+        "budget_month", "period_index", "id"
     )
     expenses = DailyExpense.objects.select_related("category", "budget_month")[:50]
 
@@ -112,6 +129,7 @@ def dashboard(request):
             "user_form": user_form,
             "budget_form": budget_form,
             "period_budget_form": period_budget_form,
+            "custom_budget_form": custom_budget_form,
             "expense_form": expense_form,
             "budget_months": budget_months,
             "categories": categories,
@@ -200,14 +218,14 @@ def reports(request):
 
 @require_GET
 def categories_for_month(request, month_id):
-    """Return the three period categories for a budget month."""
+    """Return all categories for a budget month."""
     budget_month = BudgetMonth.objects.filter(pk=month_id).first()
     if not budget_month:
         return JsonResponse({"categories": []})
     create_default_period_categories(budget_month)
     categories = (
         BudgetCategory.objects.filter(budget_month_id=month_id)
-        .order_by("period_index")
+        .order_by("period_index", "id")
         .values("id", "name", "period_index")
     )
     return JsonResponse({"categories": list(categories)})

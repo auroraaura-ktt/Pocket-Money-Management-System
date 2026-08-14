@@ -6,11 +6,11 @@
 {% block content %}
 <div class="max-w-7xl mx-auto p-4 md:p-8">
     <h1 class="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
-    <p class="text-gray-500 mb-8">Manage your budget by 10-day periods and track daily expenses.</p>
+    <p class="text-gray-500 mb-8">Manage your budget by category and track daily expenses.</p>
 
     <div class="flex gap-2 mb-6 border-b border-gray-200">
         <a href="?tab=setup" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'setup' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">1. Setup</a>
-        <a href="?tab=budget" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'budget' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">2. Period Budget</a>
+        <a href="?tab=budget" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'budget' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">2. Budget</a>
         <a href="?tab=expenses" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'expenses' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">3. Daily Expenses</a>
     </div>
 
@@ -56,7 +56,7 @@
                     <label class="block text-sm font-medium text-gray-700 mb-2">Total Money (MMK)</label>
                     {{ budget_form.total_money }}
                 </div>
-                <p class="text-sm text-gray-500 mb-4">Creates 3 default categories: Days 1-10, Days 11-20, Days 21-end.</p>
+                <p class="text-sm text-gray-500 mb-4">Creates 3 default categories: Days 1-10, Days 11-20, Days 21-end. Set their budgets in the Budget tab.</p>
                 <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Create Budget Month</button>
             </form>
         </div>
@@ -70,9 +70,9 @@
                 <thead>
                     <tr class="bg-gray-100">
                         <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">User</th>
-                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Month</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Total Money</th>
-                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period Categories</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Categories</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -95,8 +95,8 @@
     {% elif tab == 'budget' %}
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">Set Period Budget Estimates</h3>
-            <p class="text-sm text-gray-500 mb-4">Enter how much you plan to spend in each 10-day period.</p>
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">Set Category Budget Estimates</h3>
+            <p class="text-sm text-gray-500 mb-4">Set budgets for all categories. Total money is the sum of all category amounts.</p>
             <form method="post">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="save_period_budget">
@@ -104,58 +104,154 @@
                     <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
                     {{ period_budget_form.budget_month }}
                 </div>
-                <div class="space-y-4 mb-6">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Days 1-10 (MMK)</label>
-                        {{ period_budget_form.period_1 }}
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Days 11-20 (MMK)</label>
-                        {{ period_budget_form.period_2 }}
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Days 21-end (MMK)</label>
-                        {{ period_budget_form.period_3 }}
+                <div class="mb-4 pb-4 border-b border-gray-200">
+                    <p class="text-sm font-semibold text-gray-700 mb-3">Default Period Categories</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Days 1-10 (MMK)</label>
+                            {{ period_budget_form.period_1 }}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Days 11-20 (MMK)</label>
+                            {{ period_budget_form.period_2 }}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Days 21-end (MMK)</label>
+                            {{ period_budget_form.period_3 }}
+                        </div>
                     </div>
                 </div>
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Save Period Budgets</button>
+
+                <div class="mb-4 pb-4 border-b border-gray-200">
+                    <p class="text-sm font-semibold text-gray-700 mb-3">Custom Categories</p>
+                    <div class="space-y-3">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                                {{ period_budget_form.custom_name_1 }}
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
+                                {{ period_budget_form.custom_amount_1 }}
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                                {{ period_budget_form.custom_name_2 }}
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
+                                {{ period_budget_form.custom_amount_2 }}
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                                {{ period_budget_form.custom_name_3 }}
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
+                                {{ period_budget_form.custom_amount_3 }}
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                                {{ period_budget_form.custom_name_4 }}
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
+                                {{ period_budget_form.custom_amount_4 }}
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                                {{ period_budget_form.custom_name_5 }}
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
+                                {{ period_budget_form.custom_amount_5 }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="text-sm text-gray-500 mb-4">Total money will be updated to the sum of all category amounts.</p>
+                {% if period_budget_form.non_field_errors %}
+                <p class="text-red-600 text-sm mb-4">{{ period_budget_form.non_field_errors.0 }}</p>
+                {% endif %}
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Save Budgets</button>
             </form>
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Current Period Budgets</h3>
-            {% if categories %}
-            <div class="overflow-x-auto">
-                <table class="w-full">
-                    <thead>
-                        <tr class="bg-gray-100">
-                            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Month</th>
-                            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period</th>
-                            <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Estimated</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for cat in categories %}
-                        <tr class="border-b border-gray-100">
-                            <td class="px-4 py-3 text-sm text-gray-600">{{ cat.budget_month.month_label }}</td>
-                            <td class="px-4 py-3 font-medium">{{ cat.name }}</td>
-                            <td class="px-4 py-3 text-right">{{ cat.estimated_amount|mmk }}</td>
-                        </tr>
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">Set Custom Category Budget</h3>
+            <p class="text-sm text-gray-500 mb-4">Update the budget amount for an existing custom category (e.g. Shopping, Transport).</p>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="save_custom_category_budget">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
+                    <select name="budget_month" id="custom-budget-month" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% for bm in budget_months %}
+                        <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.user.name }}</option>
                         {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <p class="text-gray-500 text-center py-8">Create a budget month first — period categories are added automatically.</p>
-            {% endif %}
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Custom Category</label>
+                    <select name="category" id="custom-budget-category" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select custom category...</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Budget Amount (MMK)</label>
+                    {{ custom_budget_form.estimated_amount }}
+                    {% if custom_budget_form.estimated_amount.errors %}<p class="text-red-600 text-sm mt-1">{{ custom_budget_form.estimated_amount.errors.0 }}</p>{% endif %}
+                </div>
+                {% if custom_budget_form.non_field_errors %}
+                <p class="text-red-600 text-sm mb-4">{{ custom_budget_form.non_field_errors.0 }}</p>
+                {% endif %}
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Save Budget</button>
+            </form>
         </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Current Category Budgets</h3>
+        {% if categories %}
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="bg-gray-100">
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Month</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Estimated</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cat in categories %}
+                    <tr class="border-b border-gray-100">
+                        <td class="px-4 py-3 text-sm text-gray-600">{{ cat.budget_month.month_label }}</td>
+                        <td class="px-4 py-3 font-medium">{{ cat.name }}</td>
+                        <td class="px-4 py-3 text-right">{{ cat.estimated_amount|mmk }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-gray-500 text-center py-8">Create a budget month first — categories are added automatically.</p>
+        {% endif %}
     </div>
 
     {% elif tab == 'expenses' %}
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 class="text-lg font-semibold text-gray-900 mb-2">Add Daily Expense</h3>
-            <p class="text-sm text-gray-500 mb-4">Choose one of the 3 period categories: Days 1-10, Days 11-20, or Days 21-end. The date must match the period.</p>
+            <p class="text-sm text-gray-500 mb-4">Choose a category (custom categories apply to the whole month). The date must match the category.</p>
             <form method="post">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="add_expense">
@@ -164,7 +260,7 @@
                     {{ expense_form.budget_month }}
                 </div>
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Period Category</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
                     {{ expense_form.category }}
                     {% if expense_form.category.errors %}<p class="text-red-600 text-sm mt-1">{{ expense_form.category.errors.0 }}</p>{% endif %}
                 </div>
@@ -188,14 +284,14 @@
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Recent Expenses by Period</h3>
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Recent Expenses by Category</h3>
             {% if expenses %}
             <div class="overflow-x-auto">
                 <table class="w-full">
                     <thead>
                         <tr class="bg-gray-100">
                             <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Date</th>
-                            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period</th>
+                            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
                             <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Amount</th>
                         </tr>
                     </thead>
@@ -219,8 +315,8 @@
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
             <div>
-                <h3 class="text-lg font-semibold text-gray-900 mb-1">Budget vs Actual by Period</h3>
-                <p class="text-sm text-gray-500">Compare period budget estimates against actual expenses for each category.</p>
+                <h3 class="text-lg font-semibold text-gray-900 mb-1">Budget vs Actual by Category</h3>
+                <p class="text-sm text-gray-500">Compare category budget estimates against actual expenses.</p>
             </div>
             {% if budget_months %}
             <form method="get" class="flex items-end gap-3">
@@ -242,7 +338,7 @@
             <table class="w-full">
                 <thead>
                     <tr class="bg-gray-100">
-                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Period Category</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Budget Estimate</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Actual Spent</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Status</th>
@@ -250,16 +346,18 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for period in period_comparisons %}
+                    {% for item in period_comparisons %}
                     <tr class="border-b border-gray-100">
                         <td class="px-4 py-3 font-medium">
-                            {{ period.period_label }}
-                            <span class="block text-xs text-gray-500">Day {{ period.start_day }} – {{ period.end_day }}</span>
+                            {{ item.category_name }}
+                            {% if item.start_day is not None %}
+                            <span class="block text-xs text-gray-500">Day {{ item.start_day }} – {{ item.end_day }}</span>
+                            {% endif %}
                         </td>
-                        <td class="px-4 py-3 text-right">{{ period.budget_amount|mmk }}</td>
-                        <td class="px-4 py-3 text-right">{{ period.actual_amount|mmk }}</td>
-                        <td class="px-4 py-3 text-right font-semibold {% if period.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ period.status|title }}</td>
-                        <td class="px-4 py-3 text-right font-semibold {% if period.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ period.difference|mmk }}</td>
+                        <td class="px-4 py-3 text-right">{{ item.budget_amount|mmk }}</td>
+                        <td class="px-4 py-3 text-right">{{ item.actual_amount|mmk }}</td>
+                        <td class="px-4 py-3 text-right font-semibold {% if item.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ item.status|title }}</td>
+                        <td class="px-4 py-3 text-right font-semibold {% if item.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ item.difference|mmk }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -274,49 +372,78 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // --- Daily Expense form: load categories for the selected month ---
     const monthSelect = document.getElementById('expense-budget-month');
     const categorySelect = document.getElementById('expense-category');
     const dateInput = document.getElementById('expense-date');
-    if (!monthSelect || !categorySelect) return;
 
-    let categories = [];
+    if (monthSelect && categorySelect) {
+        let categories = [];
 
-    function periodIndexForDay(day) {
-        if (day <= 10) return 1;
-        if (day <= 20) return 2;
-        return 3;
-    }
-
-    function autoSelectCategory() {
-        if (!dateInput || !dateInput.value || categories.length === 0) return;
-        const day = parseInt(dateInput.value.split('-')[2], 10);
-        const index = periodIndexForDay(day);
-        const match = categories.find(c => c.period_index === index);
-        if (match) categorySelect.value = match.id;
-    }
-
-    async function loadCategories(monthId) {
-        if (!monthId) {
-            categorySelect.innerHTML = '<option value="">Select period...</option>';
-            categories = [];
-            return;
+        function periodIndexForDay(day) {
+            if (day <= 10) return 1;
+            if (day <= 20) return 2;
+            return 3;
         }
-        const resp = await fetch(`/api/categories/${monthId}/`);
-        const data = await resp.json();
-        categories = data.categories;
-        categorySelect.innerHTML = '<option value="">Select period...</option>';
-        data.categories.forEach(cat => {
-            const opt = document.createElement('option');
-            opt.value = cat.id;
-            opt.textContent = cat.name;
-            categorySelect.appendChild(opt);
-        });
-        autoSelectCategory();
+
+        function autoSelectCategory() {
+            if (!dateInput || !dateInput.value || categories.length === 0) return;
+            const day = parseInt(dateInput.value.split('-')[2], 10);
+            const index = periodIndexForDay(day);
+            const match = categories.find(c => c.period_index === index);
+            if (match) categorySelect.value = match.id;
+        }
+
+        async function loadCategories(monthId) {
+            if (!monthId) {
+                categorySelect.innerHTML = '<option value="">Select category...</option>';
+                categories = [];
+                return;
+            }
+            const resp = await fetch(`/api/categories/${monthId}/`);
+            const data = await resp.json();
+            categories = data.categories;
+            categorySelect.innerHTML = '<option value="">Select category...</option>';
+            data.categories.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat.id;
+                opt.textContent = cat.name;
+                categorySelect.appendChild(opt);
+            });
+            autoSelectCategory();
+        }
+
+        monthSelect.addEventListener('change', () => loadCategories(monthSelect.value));
+        if (dateInput) dateInput.addEventListener('change', autoSelectCategory);
+        if (monthSelect.value) loadCategories(monthSelect.value);
     }
 
-    monthSelect.addEventListener('change', () => loadCategories(monthSelect.value));
-    if (dateInput) dateInput.addEventListener('change', autoSelectCategory);
-    if (monthSelect.value) loadCategories(monthSelect.value);
+    // --- Set Custom Category Budget form: load only custom categories ---
+    const customMonthSelect = document.getElementById('custom-budget-month');
+    const customCategorySelect = document.getElementById('custom-budget-category');
+
+    if (customMonthSelect && customCategorySelect) {
+        async function loadCustomCategories(monthId) {
+            if (!monthId) {
+                customCategorySelect.innerHTML = '<option value="">Select custom category...</option>';
+                return;
+            }
+            const resp = await fetch(`/api/categories/${monthId}/`);
+            const data = await resp.json();
+            customCategorySelect.innerHTML = '<option value="">Select custom category...</option>';
+            data.categories
+                .filter(cat => cat.period_index === null)
+                .forEach(cat => {
+                    const opt = document.createElement('option');
+                    opt.value = cat.id;
+                    opt.textContent = cat.name;
+                    customCategorySelect.appendChild(opt);
+                });
+        }
+
+        customMonthSelect.addEventListener('change', () => loadCustomCategories(customMonthSelect.value));
+        if (customMonthSelect.value) loadCustomCategories(customMonthSelect.value);
+    }
 });
 </script>
 {% endblock %}

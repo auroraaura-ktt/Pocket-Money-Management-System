@@ -1,13 +1,13 @@
 # Pocket Money Management System
 
-A Django web app to track budget estimates vs actual daily spending, with deficit/surplus reports every 10 days and monthly email summaries.
+A Django web app to track budget estimates vs actual daily spending, with deficit/surplus reports by category and monthly email summaries.
 
 ## Features
 
 - **Total Money** — Set the total amount available for a month
-- **Budget Estimates** — Create spending categories with estimated amounts
+- **Budget Estimates** — Create spending categories with estimated amounts (default 10-day periods + custom categories like Food, Transport, Shopping)
 - **Daily Expenses** — Log actual spending each day by category
-- **10-Day Reports** — Compare budget vs actual for Days 1–10, 11–20, and 21–end
+- **Category Reports** — Compare budget vs actual for each category
 - **Monthly Summary** — Compare total spending against your total money (deficit/surplus)
 - **Email Reports** — Send the full report to the user's email
 
@@ -39,9 +39,9 @@ Open **http://127.0.0.1:8000/** in your browser.
 ## Usage Flow
 
 1. **Dashboard → Setup** — Register a user (name + email) and create a monthly budget with total money
-2. **Dashboard → Budget Categories** — Add categories (Food, Transport, etc.) with estimated amounts
+2. **Dashboard → Budget** — Set estimates for the default 10-day categories (Days 1-10, 11-20, 21-end) and add custom categories (Food, Transport, etc.) with estimates
 3. **Dashboard → Daily Expenses** — Record spending each day under the correct category
-4. **Reports** — Select a budget month to view deficit/surplus per category for each 10-day period and the full month
+4. **Reports** — Select a budget month to view deficit/surplus per category and the full month
 5. **Email Report** — Click the email button on the reports page to send the report to the user
 
 ## Project Structure
@@ -67,4 +67,3 @@ SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
 SMTP_PASSWORD=your-16-char-app-password
 SMTP_FROM=your-email@gmail.com
-```

@@ -47,14 +47,14 @@ class BudgetCategory(models.Model):
     )
     name = models.CharField(max_length=100)
     estimated_amount = models.DecimalField(max_digits=12, decimal_places=0)
-    period_index = models.PositiveSmallIntegerField()
+    period_index = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         verbose_name_plural = "budget categories"
-        ordering = ["period_index"]
+        ordering = ["period_index", "id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["budget_month", "period_index"], name="uq_month_period"
+                fields=["budget_month", "name"], name="uq_month_category_name"
             ),
         ]
 

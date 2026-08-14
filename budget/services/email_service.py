@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 
 from budget.currency import format_mmk
-from budget.services.report_service import MonthlyReport, PeriodComparison
+from budget.services.report_service import CategoryComparison, MonthlyReport
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +39,10 @@ def _build_report_html(report: MonthlyReport, user_name: str) -> str:
         </table>
     </div>
 
-    <h2>Period Comparison (Budget vs Actual)</h2>
+    <h2>Category Comparison (Budget vs Actual)</h2>
     <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
         <tr style="background: #e5e7eb;">
-            <th style="padding: 8px; text-align: left;">Period</th>
+            <th style="padding: 8px; text-align: left;">Category</th>
             <th style="padding: 8px; text-align: right;">Budget</th>
             <th style="padding: 8px; text-align: right;">Actual</th>
             <th style="padding: 8px; text-align: right;">Status</th>
@@ -50,15 +50,18 @@ def _build_report_html(report: MonthlyReport, user_name: str) -> str:
         </tr>
     """
 
-    for period in report.period_reports:
-        color = "#16a34a" if period.status == "surplus" else "#dc2626"
+    for item in report.period_reports:
+        color = "#16a34a" if item.status == "surplus" else "#dc2626"
+        range_label = ""
+        if item.start_day is not None and item.end_day is not None:
+            range_label = f" (Day {item.start_day}-{item.end_day})"
         html += f"""
         <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">{period.period_label} (Day {period.start_day}-{period.end_day})</td>
-            <td style="padding: 8px; text-align: right; border-bottom: 1px solid #e5e7eb;">{format_mmk(period.budget_amount)}</td>
-            <td style="padding: 8px; text-align: right; border-bottom: 1px solid #e5e7eb;">{format_mmk(period.actual_amount)}</td>
-            <td style="padding: 8px; text-align: right; color: {color}; border-bottom: 1px solid #e5e7eb;">{period.status.title()}</td>
-            <td style="padding: 8px; text-align: right; color: {color}; border-bottom: 1px solid #e5e7eb;">{format_mmk(period.difference)}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">{item.category_name}{range_label}</td>
+            <td style="padding: 8px; text-align: right; border-bottom: 1px solid #e5e7eb;">{format_mmk(item.budget_amount)}</td>
+            <td style="padding: 8px; text-align: right; border-bottom: 1px solid #e5e7eb;">{format_mmk(item.actual_amount)}</td>
+            <td style="padding: 8px; text-align: right; color: {color}; border-bottom: 1px solid #e5e7eb;">{item.status.title()}</td>
+            <td style="padding: 8px; text-align: right; color: {color}; border-bottom: 1px solid #e5e7eb;">{format_mmk(item.difference)}</td>
         </tr>
         """
 
@@ -73,11 +76,14 @@ def _build_report_html(report: MonthlyReport, user_name: str) -> str:
 
 
 def _build_period_report_html(
-    report: MonthlyReport, period: PeriodComparison, user_name: str
+    report: MonthlyReport, item: CategoryComparison, user_name: str
 ) -> str:
-    """Build an HTML email for a single period (e.g. Days 1-10)."""
+    """Build an HTML email for a single category (e.g. Days 1-10)."""
     month_name = settings.MONTH_NAMES[report.month]
-    color = "#16a34a" if period.status == "surplus" else "#dc2626"
+    color = "#16a34a" if item.status == "surplus" else "#dc2626"
+    range_label = ""
+    if item.start_day is not None and item.end_day is not None:
+        range_label = f" (Day {item.start_day}-{item.end_day})"
 
     html = f"""
     <html><body style="font-family: Arial, sans-serif; max-width: 700px; margin: auto;">
@@ -86,13 +92,13 @@ def _build_period_report_html(
     <p>Here is your budget report for <strong>{month_name} {report.year}</strong>.</p>
 
     <div style="background: #f0f9ff; padding: 16px; border-radius: 8px; margin: 16px 0;">
-        <h2 style="margin-top: 0;">{period.period_label} (Day {period.start_day}-{period.end_day})</h2>
+        <h2 style="margin-top: 0;">{item.category_name}{range_label}</h2>
         <table style="width: 100%; border-collapse: collapse;">
-            <tr><td>Budget Estimated</td><td style="text-align:right;">{format_mmk(period.budget_amount)}</td></tr>
-            <tr><td>Actually Spent</td><td style="text-align:right;">{format_mmk(period.actual_amount)}</td></tr>
+            <tr><td>Budget Estimated</td><td style="text-align:right;">{format_mmk(item.budget_amount)}</td></tr>
+            <tr><td>Actually Spent</td><td style="text-align:right;">{format_mmk(item.actual_amount)}</td></tr>
             <tr style="font-size: 1.2em; color: {color};">
-                <td><strong>Status: {period.status.title()}</strong></td>
-                <td style="text-align:right;"><strong>{format_mmk(period.difference)}</strong></td>
+                <td><strong>Status: {item.status.title()}</strong></td>
+                <td style="text-align:right;"><strong>{format_mmk(item.difference)}</strong></td>
             </tr>
         </table>
     </div>
@@ -144,10 +150,10 @@ def send_period_report_email(
     to_email: str,
     user_name: str,
     report: MonthlyReport,
-    period: PeriodComparison,
+    item: CategoryComparison,
     month_label: str,
 ) -> bool:
-    """Send a single period report (e.g. Days 1-10) via email."""
-    subject = f"Pocket Money Report - {period.period_label} ({month_label})"
-    html_content = _build_period_report_html(report, period, user_name)
+    """Send a single category report (e.g. Days 1-10) via email."""
+    subject = f"Pocket Money Report - {item.category_name} ({month_label})"
+    html_content = _build_period_report_html(report, item, user_name)
     return _send_email(to_email, subject, html_content)
