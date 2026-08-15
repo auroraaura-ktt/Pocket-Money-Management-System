@@ -67,6 +67,35 @@ def dashboard(request):
                 )
                 return redirect("budget:dashboard")
 
+        elif action == "edit_budget_month":
+            budget_month_id = request.POST.get("budget_month_id")
+            budget_month = BudgetMonth.objects.filter(pk=budget_month_id).first()
+            if not budget_month:
+                messages.error(request, "Budget month not found.")
+                return redirect("budget:dashboard")
+
+            budget_form = BudgetMonthForm(request.POST, instance=budget_month)
+            if budget_form.is_valid():
+                updated_month = budget_form.save()
+                messages.success(
+                    request,
+                    f"Budget month updated to {updated_month.month_label} "
+                    f"with total {updated_month.total_money} MMK.",
+                )
+                return redirect("budget:dashboard")
+
+        elif action == "delete_budget_month":
+            budget_month_id = request.POST.get("budget_month_id")
+            budget_month = BudgetMonth.objects.filter(pk=budget_month_id).first()
+            if not budget_month:
+                messages.error(request, "Budget month not found.")
+                return redirect("budget:dashboard")
+
+            budget_month_label = budget_month.month_label
+            budget_month.delete()
+            messages.success(request, f"Budget month '{budget_month_label}' deleted.")
+            return redirect("budget:dashboard")
+
         elif action == "save_period_budget":
             period_budget_form = PeriodBudgetForm(request.POST)
             if period_budget_form.is_valid():

@@ -35,9 +35,10 @@
 
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Create Monthly Budget</h3>
-            <form method="post">
+            <form method="post" id="budget-month-form">
                 {% csrf_token %}
-                <input type="hidden" name="action" value="create_budget">
+                <input type="hidden" name="action" id="budget-month-action" value="create_budget">
+                <input type="hidden" name="budget_month_id" id="budget-month-id" value="">
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">User</label>
                     {{ budget_form.user }}
@@ -57,7 +58,8 @@
                     {{ budget_form.total_money }}
                 </div>
                 <p class="text-sm text-gray-500 mb-4">Creates 3 default categories: Days 1-10, Days 11-20, Days 21-end. Set their budgets in the Budget tab.</p>
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Create Budget Month</button>
+                <button type="submit" id="budget-month-submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Create Budget Month</button>
+                <button type="button" id="cancel-budget-month-edit" class="hidden ml-2 text-gray-600 hover:text-gray-800 underline">Cancel Edit</button>
             </form>
         </div>
     </div>
@@ -81,7 +83,17 @@
                         <td class="px-4 py-3">{{ bm.user.name }}</td>
                         <td class="px-4 py-3">{{ bm.month_label }}</td>
                         <td class="px-4 py-3 text-right font-medium">{{ bm.total_money|mmk }}</td>
-                        <td class="px-4 py-3 text-right">{{ bm.categories.count }}</td>
+                        <td class="px-4 py-3 text-right">
+                            <div class="flex items-center justify-end gap-3">
+                                <button type="button" class="text-xs text-blue-600 hover:text-blue-800 underline edit-budget-month" data-budget-month-id="{{ bm.id }}" data-user-id="{{ bm.user.id }}" data-year="{{ bm.year }}" data-month="{{ bm.month }}" data-total-money="{{ bm.total_money }}">Edit</button>
+                                <form method="post" class="inline-block">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="delete_budget_month">
+                                    <input type="hidden" name="budget_month_id" value="{{ bm.id }}">
+                                    <button type="submit" class="text-xs text-red-600 hover:text-red-800 underline" onclick="return confirm('Delete this budget month and all its categories?');">Delete</button>
+                                </form>
+                            </div>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -487,6 +499,45 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // --- Budget month editor: prefill the create form for edits ---
+    const budgetMonthAction = document.getElementById('budget-month-action');
+    const budgetMonthIdInput = document.getElementById('budget-month-id');
+    const budgetMonthSubmit = document.getElementById('budget-month-submit');
+    const cancelBudgetMonthEdit = document.getElementById('cancel-budget-month-edit');
+
+    function resetBudgetMonthEditor() {
+        if (!budgetMonthAction || !budgetMonthIdInput || !budgetMonthSubmit || !cancelBudgetMonthEdit) return;
+        budgetMonthAction.value = 'create_budget';
+        budgetMonthIdInput.value = '';
+        budgetMonthSubmit.textContent = 'Create Budget Month';
+        cancelBudgetMonthEdit.classList.add('hidden');
+    }
+
+    document.querySelectorAll('.edit-budget-month').forEach(button => {
+        button.addEventListener('click', function() {
+            if (!budgetMonthAction || !budgetMonthIdInput || !budgetMonthSubmit || !cancelBudgetMonthEdit) return;
+            const userField = document.getElementById('id_user');
+            const yearField = document.getElementById('id_year');
+            const monthField = document.getElementById('id_month');
+            const totalMoneyField = document.getElementById('id_total_money');
+            if (!userField || !yearField || !monthField || !totalMoneyField) return;
+
+            budgetMonthAction.value = 'edit_budget_month';
+            budgetMonthIdInput.value = this.dataset.budgetMonthId;
+            userField.value = this.dataset.userId || userField.value;
+            yearField.value = this.dataset.year || yearField.value;
+            monthField.value = this.dataset.month || monthField.value;
+            totalMoneyField.value = this.dataset.totalMoney || totalMoneyField.value;
+            budgetMonthSubmit.textContent = 'Update Budget Month';
+            cancelBudgetMonthEdit.classList.remove('hidden');
+            totalMoneyField.focus();
+        });
+    });
+
+    if (cancelBudgetMonthEdit) {
+        cancelBudgetMonthEdit.addEventListener('click', resetBudgetMonthEditor);
+    }
+
     // --- Daily Expense form: load categories for the selected month ---
     const monthSelect = document.getElementById('expense-budget-month');
     const categorySelect = document.getElementById('expense-category');

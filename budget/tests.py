@@ -100,6 +100,41 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertFalse(DailyExpense.objects.filter(pk=expense.id).exists())
 
+    def test_edit_budget_month_from_dashboard(self):
+        response = self.client.post(
+            reverse("budget:dashboard"),
+            {
+                "action": "edit_budget_month",
+                "budget_month_id": self.budget_month.id,
+                "user": self.user.id,
+                "year": "2027",
+                "month": "9",
+                "total_money": "600000",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.budget_month.refresh_from_db()
+        self.assertEqual(self.budget_month.year, 2027)
+        self.assertEqual(self.budget_month.month, 9)
+        self.assertEqual(self.budget_month.total_money, Decimal("600000"))
+
+    def test_delete_budget_month_from_dashboard(self):
+        second_month = BudgetMonth.objects.create(
+            user=self.user,
+            year=2026,
+            month=7,
+            total_money=Decimal("450000"),
+        )
+
+        response = self.client.post(
+            reverse("budget:dashboard"),
+            {"action": "delete_budget_month", "budget_month_id": second_month.id},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(BudgetMonth.objects.filter(pk=second_month.id).exists())
+
     def test_delete_category_budget_from_dashboard(self):
         category = self.budget_month.categories.create(
             name="Books",
