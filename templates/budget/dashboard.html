@@ -267,6 +267,12 @@
                         <td class="px-4 py-3 font-medium">
                             {{ cat.name }}
                             <button type="button" class="ml-2 text-xs text-blue-600 hover:text-blue-800 underline edit-category-budget" data-category-id="{{ cat.id }}" data-budget-month-id="{{ cat.budget_month.id }}" data-category-name="{{ cat.name }}" data-budget-amount="{{ cat.estimated_amount }}">Edit</button>
+                            <form method="post" class="inline-block ml-2">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="delete_category_budget">
+                                <input type="hidden" name="category_id" value="{{ cat.id }}">
+                                <button type="submit" class="text-xs text-red-600 hover:text-red-800 underline" onclick="return confirm('Delete this category budget?');">Delete</button>
+                            </form>
                         </td>
                         <td class="px-4 py-3 text-right">{{ cat.estimated_amount|mmk }}</td>
                     </tr>
@@ -331,6 +337,11 @@
                     {% if unexpected_money_form.category.errors %}<p class="text-red-600 text-sm mt-1">{{ unexpected_money_form.category.errors.0 }}</p>{% endif %}
                 </div>
                 <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Or create a new category</label>
+                    {{ unexpected_money_form.new_category_name }}
+                    {% if unexpected_money_form.new_category_name.errors %}<p class="text-red-600 text-sm mt-1">{{ unexpected_money_form.new_category_name.errors.0 }}</p>{% endif %}
+                </div>
+                <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Date</label>
                     {{ unexpected_money_form.expense_date }}
                 </div>
@@ -351,7 +362,7 @@
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Recent Expenses by Category</h3>
+        <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">All Expenses by Category</h3>
         {% if expenses %}
         <div class="overflow-x-auto">
             <table class="w-full">
@@ -360,6 +371,7 @@
                         <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Date</th>
                         <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -368,11 +380,48 @@
                         <td class="px-4 py-3 text-sm">{{ exp.expense_date }}</td>
                         <td class="px-4 py-3">{{ exp.category.name }}</td>
                         <td class="px-4 py-3 text-right font-medium {% if exp.amount < 0 %}text-green-600{% else %}text-gray-900{% endif %}">{{ exp.amount|mmk }}</td>
+                        <td class="px-4 py-3 text-right">
+                            <button type="button" class="text-xs text-blue-600 hover:text-blue-800 underline edit-expense" data-expense-id="{{ exp.id }}" data-budget-month="{{ exp.budget_month.id }}" data-category="{{ exp.category.id }}" data-date="{{ exp.expense_date|date:'Y-m-d' }}" data-amount="{{ exp.amount }}" data-note="{{ exp.note|default:'' }}">Edit</button>
+                            <form method="post" class="inline-block ml-2">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="delete_expense">
+                                <input type="hidden" name="expense_id" value="{{ exp.id }}">
+                                <button type="submit" class="text-xs text-red-600 hover:text-red-800 underline" onclick="return confirm('Delete this expense record?');">Delete</button>
+                            </form>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+
+        {% if expense_debug_rows %}
+        <div class="mt-6">
+            <h4 class="text-sm font-semibold text-gray-700 mb-3">Period Audit</h4>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="bg-gray-100">
+                            <th class="text-left px-3 py-2 font-semibold text-gray-600">Date</th>
+                            <th class="text-left px-3 py-2 font-semibold text-gray-600">Category</th>
+                            <th class="text-right px-3 py-2 font-semibold text-gray-600">Amount</th>
+                            <th class="text-left px-3 py-2 font-semibold text-gray-600">Bucket</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in expense_debug_rows %}
+                        <tr class="border-b border-gray-100">
+                            <td class="px-3 py-2">{{ row.date }}</td>
+                            <td class="px-3 py-2">{{ row.category_name }}</td>
+                            <td class="px-3 py-2 text-right">{{ row.amount|mmk }}</td>
+                            <td class="px-3 py-2">{{ row.period_name }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
         {% else %}
         <p class="text-gray-500 text-center py-8">No expenses recorded yet.</p>
         {% endif %}
@@ -416,9 +465,6 @@
                     <tr class="border-b border-gray-100">
                         <td class="px-4 py-3 font-medium">
                             {{ item.category_name }}
-                            {% if item.category_id %}
-                            <button type="button" class="ml-2 text-xs text-blue-600 hover:text-blue-800 underline edit-category-budget" data-category-id="{{ item.category_id }}" data-budget-month-id="{{ expense_comparison_month.id }}" data-category-name="{{ item.category_name }}" data-budget-amount="{{ item.budget_amount }}">Edit</button>
-                            {% endif %}
                             {% if item.start_day is not None %}
                             <span class="block text-xs text-gray-500">Day {{ item.start_day }} – {{ item.end_day }}</span>
                             {% endif %}
@@ -555,6 +601,52 @@ document.addEventListener('DOMContentLoaded', function() {
             categorySelect.value = this.dataset.categoryId;
             amountInput.value = this.dataset.budgetAmount;
             amountInput.focus();
+        });
+    });
+
+    // --- Existing expense editor ---
+    const expenseEditorMonth = document.getElementById('edit-expense-budget-month');
+    const expenseEditorCategory = document.getElementById('edit-expense-category');
+    const expenseEditorId = document.getElementById('edit-expense-id');
+    const expenseEditorDate = document.getElementById('edit-expense-date');
+    const expenseEditorAmount = document.getElementById('edit-expense-amount');
+    const expenseEditorNote = document.getElementById('edit-expense-note');
+
+    async function loadExpenseEditorCategories(monthId) {
+        if (!expenseEditorMonth || !expenseEditorCategory) return;
+        if (!monthId) {
+            expenseEditorCategory.innerHTML = '<option value="">Select category...</option>';
+            return;
+        }
+        const resp = await fetch(`/api/categories/${monthId}/`);
+        const data = await resp.json();
+        expenseEditorCategory.innerHTML = '<option value="">Select category...</option>';
+        data.categories.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat.id;
+            opt.textContent = cat.name;
+            expenseEditorCategory.appendChild(opt);
+        });
+    }
+
+    if (expenseEditorMonth && expenseEditorCategory) {
+        expenseEditorMonth.addEventListener('change', () => loadExpenseEditorCategories(expenseEditorMonth.value));
+        if (expenseEditorMonth.value) loadExpenseEditorCategories(expenseEditorMonth.value);
+    }
+
+    document.querySelectorAll('.edit-expense').forEach(button => {
+        button.addEventListener('click', function() {
+            if (!expenseEditorMonth || !expenseEditorCategory || !expenseEditorId || !expenseEditorDate || !expenseEditorAmount || !expenseEditorNote) return;
+
+            expenseEditorMonth.value = this.dataset.budgetMonth;
+            loadExpenseEditorCategories(this.dataset.budgetMonth).then(() => {
+                expenseEditorCategory.value = this.dataset.category;
+            });
+            expenseEditorId.value = this.dataset.expenseId;
+            expenseEditorDate.value = this.dataset.date;
+            expenseEditorAmount.value = this.dataset.amount;
+            expenseEditorNote.value = this.dataset.note || '';
+            expenseEditorAmount.focus();
         });
     });
 

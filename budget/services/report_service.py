@@ -45,6 +45,10 @@ def _build_comparison(
     budget_amount = to_mmk(budget_amount)
     actual_amount = to_mmk(actual_amount)
     difference = budget_amount - actual_amount
+    if actual_amount < 0:
+        status = "deficit"
+    else:
+        status = "surplus" if difference >= 0 else "deficit"
     return CategoryComparison(
         category_id=None,
         category_name=category_name,
@@ -53,7 +57,7 @@ def _build_comparison(
         budget_amount=budget_amount,
         actual_amount=actual_amount,
         difference=abs(difference),
-        status="surplus" if difference >= 0 else "deficit",
+        status=status,
     )
 
 
@@ -104,7 +108,10 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
             budget_month.year, budget_month.month, period.index
         )
         actual_amount = _get_total_actual_spent(
-            budget_month.id, start_date=start_date, end_date=end_date
+            budget_month.id,
+            category_id=category.id if category else None,
+            start_date=start_date,
+            end_date=end_date,
         )
         end_day = period_end_day(budget_month.year, budget_month.month, period.index)
 

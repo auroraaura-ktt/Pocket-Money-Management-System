@@ -439,6 +439,18 @@ class DailyExpenseForm(forms.ModelForm):
 class UnexpectedMoneyForm(forms.ModelForm):
     """Record additional money received into a category."""
 
+    new_category_name = forms.CharField(
+        required=False,
+        max_length=100,
+        label="Or create new category",
+        widget=forms.TextInput(
+            attrs={
+                "class": INPUT_CLASS,
+                "placeholder": "e.g. Bonus, Refund, Gift",
+            }
+        ),
+    )
+
     class Meta:
         model = DailyExpense
         fields = ["budget_month", "category", "expense_date", "amount", "note"]
@@ -467,6 +479,7 @@ class UnexpectedMoneyForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["category"].required = False
         self.fields["category"].queryset = BudgetCategory.objects.none()
         self.fields["category"].empty_label = "Select category..."
 
@@ -485,8 +498,29 @@ class UnexpectedMoneyForm(forms.ModelForm):
         cleaned = super().clean()
         budget_month = cleaned.get("budget_month")
         category = cleaned.get("category")
+        new_category_name = (cleaned.get("new_category_name") or "").strip()
         expense_date = cleaned.get("expense_date")
         amount = cleaned.get("amount")
+
+        if not category and new_category_name:
+            category = BudgetCategory.objects.filter(
+                budget_month=budget_month,
+                name=new_category_name,
+            ).first()
+            if category is None and budget_month:
+                category = BudgetCategory.objects.create(
+                    budget_month=budget_month,
+                    name=new_category_name,
+                    estimated_amount=Decimal("0"),
+                    period_index=None,
+                )
+            cleaned["category"] = category
+            category = cleaned["category"]
+
+        if not category:
+            raise ValidationError(
+                "Select an existing category or enter a new category name."
+            )
 
         if budget_month and category and category.budget_month_id != budget_month.id:
             raise ValidationError(
@@ -518,6 +552,22 @@ class UnexpectedMoneyForm(forms.ModelForm):
 
     def save(self, commit=True):
         instance = super().save(commit=False)
+        if not instance.category:
+            new_category_name = (self.cleaned_data.get("new_category_name") or "").strip()
+            if new_category_name:
+                category = BudgetCategory.objects.filter(
+                    budget_month=instance.budget_month,
+                    name=new_category_name,
+                ).first()
+                if category is None and instance.budget_month:
+                    category = BudgetCategory.objects.create(
+                        budget_month=instance.budget_month,
+                        name=new_category_name,
+                        estimated_amount=Decimal("0"),
+                        period_index=None,
+                    )
+                instance.category = category
+
         instance.amount = -abs(instance.amount)
         if commit:
             instance.save()

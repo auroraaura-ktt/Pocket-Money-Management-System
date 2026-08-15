@@ -117,6 +117,55 @@ def dashboard(request):
                 )
                 return _dashboard_redirect("expenses")
 
+        elif action == "update_expense":
+            expense_id = request.POST.get("expense_id")
+            expense_instance = DailyExpense.objects.filter(pk=expense_id).first()
+            if not expense_instance:
+                messages.error(request, "Expense not found.")
+                return _dashboard_redirect("expenses")
+
+            post_data = request.POST.copy()
+            for field_name, value in {
+                "budget_month": expense_instance.budget_month_id,
+                "category": expense_instance.category_id,
+                "expense_date": expense_instance.expense_date,
+            }.items():
+                if not post_data.get(field_name):
+                    post_data[field_name] = value
+
+            expense_form = DailyExpenseForm(post_data, instance=expense_instance)
+            if expense_form.is_valid():
+                updated_expense = expense_form.save()
+                messages.success(
+                    request,
+                    f"Expense updated for {updated_expense.category.name}: {updated_expense.amount} MMK.",
+                )
+                return _dashboard_redirect("expenses")
+
+        elif action == "delete_expense":
+            expense_id = request.POST.get("expense_id")
+            expense_instance = DailyExpense.objects.filter(pk=expense_id).first()
+            if not expense_instance:
+                messages.error(request, "Expense not found.")
+                return _dashboard_redirect("expenses")
+
+            expense_label = f"{expense_instance.category.name} ({expense_instance.amount} MMK)"
+            expense_instance.delete()
+            messages.success(request, f"Expense deleted for {expense_label}.")
+            return _dashboard_redirect("expenses")
+
+        elif action == "delete_category_budget":
+            category_id = request.POST.get("category_id")
+            category_instance = BudgetCategory.objects.filter(pk=category_id).first()
+            if not category_instance:
+                messages.error(request, "Category not found.")
+                return _dashboard_redirect("budget")
+
+            category_name = category_instance.name
+            category_instance.delete()
+            messages.success(request, f"Category budget '{category_name}' deleted.")
+            return _dashboard_redirect("budget")
+
         elif action == "add_extra_money":
             month_id = request.POST.get("budget_month")
             if month_id:
@@ -138,7 +187,10 @@ def dashboard(request):
     categories = BudgetCategory.objects.select_related("budget_month").order_by(
         "budget_month", "period_index", "id"
     )
-    expenses = DailyExpense.objects.select_related("category", "budget_month")[:50]
+    expenses = DailyExpense.objects.select_related("category", "budget_month").order_by(
+        "-expense_date", "-id"
+    )
+    expense_debug_rows = []
 
     expense_comparison_month = None
     period_comparisons = []
@@ -153,6 +205,25 @@ def dashboard(request):
             create_default_period_categories(expense_comparison_month)
             report = generate_monthly_report(expense_comparison_month.id)
             period_comparisons = report.period_reports
+            expenses = expenses.filter(budget_month_id=expense_comparison_month.id)
+
+            period_by_index = {
+                period.index: period.name for period in __import__("budget.periods", fromlist=["PERIOD_DEFINITIONS"]).PERIOD_DEFINITIONS
+            }
+            for expense in expenses:
+                period_index = None
+                if expense.category and expense.category.period_index is not None:
+                    period_index = expense.category.period_index
+                expense_debug_rows.append(
+                    {
+                        "id": expense.id,
+                        "date": expense.expense_date,
+                        "category_name": expense.category.name,
+                        "amount": expense.amount,
+                        "note": expense.note,
+                        "period_name": period_by_index.get(period_index, "Custom") if period_index is not None else "Custom",
+                    }
+                )
 
     return render(
         request,
@@ -171,6 +242,7 @@ def dashboard(request):
             "expenses": expenses,
             "expense_comparison_month": expense_comparison_month,
             "period_comparisons": period_comparisons,
+            "expense_debug_rows": expense_debug_rows,
         },
     )
 
