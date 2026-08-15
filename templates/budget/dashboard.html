@@ -407,33 +407,43 @@
             </table>
         </div>
 
-        {% if expense_debug_rows %}
-        <div class="mt-6">
-            <h4 class="text-sm font-semibold text-gray-700 mb-3">Period Audit</h4>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="bg-gray-100">
-                            <th class="text-left px-3 py-2 font-semibold text-gray-600">Date</th>
-                            <th class="text-left px-3 py-2 font-semibold text-gray-600">Category</th>
-                            <th class="text-right px-3 py-2 font-semibold text-gray-600">Amount</th>
-                            <th class="text-left px-3 py-2 font-semibold text-gray-600">Bucket</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in expense_debug_rows %}
-                        <tr class="border-b border-gray-100">
-                            <td class="px-3 py-2">{{ row.date }}</td>
-                            <td class="px-3 py-2">{{ row.category_name }}</td>
-                            <td class="px-3 py-2 text-right">{{ row.amount|mmk }}</td>
-                            <td class="px-3 py-2">{{ row.period_name }}</td>
-                        </tr>
+        <div class="mt-6 bg-gray-50 border border-gray-200 rounded-xl p-4">
+            <h4 class="text-sm font-semibold text-gray-800 mb-3">Update Expense</h4>
+            <form method="post" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="update_expense">
+                <input type="hidden" name="expense_id" id="edit-expense-id">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Month</label>
+                    <select name="budget_month" id="edit-expense-budget-month" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% for bm in budget_months %}
+                        <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.user.name }}</option>
                         {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                    <select name="category" id="edit-expense-category" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select category...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                    <input type="date" name="expense_date" id="edit-expense-date" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
+                    <input type="number" name="amount" id="edit-expense-amount" min="1" step="1" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Note</label>
+                    <input type="text" name="note" id="edit-expense-note" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Optional">
+                </div>
+                <div class="md:col-span-5 flex justify-end">
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Update Expense</button>
+                </div>
+            </form>
         </div>
-        {% endif %}
         {% else %}
         <p class="text-gray-500 text-center py-8">No expenses recorded yet.</p>
         {% endif %}

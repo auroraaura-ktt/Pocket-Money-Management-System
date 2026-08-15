@@ -72,15 +72,32 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
             {
                 "action": "update_expense",
                 "expense_id": expense.id,
-                "amount": "55000",
+                "amount": "50000",
                 "note": "Groceries updated",
             },
         )
 
         self.assertEqual(response.status_code, 302)
         expense.refresh_from_db()
-        self.assertEqual(expense.amount, Decimal("55000"))
+        self.assertEqual(expense.amount, Decimal("50000"))
         self.assertEqual(expense.note, "Groceries updated")
+
+    def test_edit_expense_form_is_rendered_on_dashboard(self):
+        category = self.budget_month.categories.get(period_index=1)
+        DailyExpense.objects.create(
+            budget_month=self.budget_month,
+            category=category,
+            expense_date="2026-08-05",
+            amount=Decimal("50000"),
+            note="Groceries",
+        )
+
+        response = self.client.get(reverse("budget:dashboard"), {"tab": "expenses"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="action" value="update_expense"')
+        self.assertContains(response, 'id="edit-expense-amount"')
+        self.assertContains(response, 'id="edit-expense-id"')
 
     def test_delete_expense_from_dashboard(self):
         category = self.budget_month.categories.get(period_index=1)
