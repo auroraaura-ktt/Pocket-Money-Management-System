@@ -8,10 +8,12 @@ from django.views.decorators.http import require_GET
 
 from budget.forms import (
     BudgetMonthForm,
+    CategoryBudgetUpdateForm,
     CustomCategoryBudgetForm,
     DailyExpenseForm,
     PeriodBudgetForm,
     ReportSelectForm,
+    UnexpectedMoneyForm,
     UserForm,
 )
 from budget.models import BudgetCategory, BudgetMonth, DailyExpense, ReportEmailLog
@@ -41,6 +43,8 @@ def dashboard(request):
     period_budget_form = PeriodBudgetForm()
     custom_budget_form = CustomCategoryBudgetForm()
     expense_form = DailyExpenseForm()
+    category_update_form = CategoryBudgetUpdateForm()
+    unexpected_money_form = UnexpectedMoneyForm()
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -84,6 +88,20 @@ def dashboard(request):
                 )
                 return _dashboard_redirect("budget")
 
+        elif action == "update_category_budget":
+            post_data = request.POST.copy()
+            category_id = post_data.get("category_id") or post_data.get("category")
+            if category_id:
+                post_data["category"] = category_id
+            category_update_form = CategoryBudgetUpdateForm(post_data)
+            if category_update_form.is_valid():
+                category = category_update_form.save()
+                messages.success(
+                    request,
+                    f"Budget for '{category.name}' updated to {category.estimated_amount} MMK.",
+                )
+                return _dashboard_redirect("budget")
+
         elif action == "add_expense":
             month_id = request.POST.get("budget_month")
             if month_id:
@@ -96,6 +114,21 @@ def dashboard(request):
                 messages.success(
                     request,
                     f"Expense recorded under {expense.category.name}.",
+                )
+                return _dashboard_redirect("expenses")
+
+        elif action == "add_extra_money":
+            month_id = request.POST.get("budget_month")
+            if month_id:
+                budget_month_obj = BudgetMonth.objects.filter(pk=month_id).first()
+                if budget_month_obj:
+                    create_default_period_categories(budget_month_obj)
+            unexpected_money_form = UnexpectedMoneyForm(request.POST)
+            if unexpected_money_form.is_valid():
+                extra_money = unexpected_money_form.save()
+                messages.success(
+                    request,
+                    f"Extra money recorded for {extra_money.category.name}: {extra_money.amount} MMK.",
                 )
                 return _dashboard_redirect("expenses")
 
@@ -131,6 +164,8 @@ def dashboard(request):
             "period_budget_form": period_budget_form,
             "custom_budget_form": custom_budget_form,
             "expense_form": expense_form,
+            "category_update_form": category_update_form,
+            "unexpected_money_form": unexpected_money_form,
             "budget_months": budget_months,
             "categories": categories,
             "expenses": expenses,

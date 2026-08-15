@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -92,42 +93,51 @@ WSGI_APPLICATION = "config.wsgi.application"
 # site functional, but /tmp is ephemeral: data is lost when the lambda is
 # recycled.  It is a stop-gap only.
 
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-
-if DATABASE_URL:
-    import dj_database_url
-
-    DATABASES = {
-        "default": dj_database_url.parse(
-            DATABASE_URL,
-            conn_max_age=0,
-            ssl_require=os.getenv("DATABASE_SSL_REQUIRE", "True").lower()
-            in ("true", "1", "yes"),
-        )
-    }
-else:
-    SQLITE_PATH = BASE_DIR / "db.sqlite3"
-
-    if ON_VERCEL:
-        # /tmp is the only writable path in the serverless runtime.
-        TMP_SQLITE_PATH = Path("/tmp") / "db.sqlite3"
-        if not TMP_SQLITE_PATH.exists():
-            try:
-                if SQLITE_PATH.exists():
-                    shutil.copy(SQLITE_PATH, TMP_SQLITE_PATH)
-                else:
-                    TMP_SQLITE_PATH.touch()
-            except OSError:
-                pass
-        SQLITE_PATH = TMP_SQLITE_PATH
-
+if "test" in sys.argv:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": SQLITE_PATH,
+            "NAME": BASE_DIR / "test_db.sqlite3",
             "OPTIONS": {"timeout": 20},
         }
     }
+else:
+    DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+    if DATABASE_URL:
+        import dj_database_url
+
+        DATABASES = {
+            "default": dj_database_url.parse(
+                DATABASE_URL,
+                conn_max_age=0,
+                ssl_require=os.getenv("DATABASE_SSL_REQUIRE", "True").lower()
+                in ("true", "1", "yes"),
+            )
+        }
+    else:
+        SQLITE_PATH = BASE_DIR / "db.sqlite3"
+
+        if ON_VERCEL:
+            # /tmp is the only writable path in the serverless runtime.
+            TMP_SQLITE_PATH = Path("/tmp") / "db.sqlite3"
+            if not TMP_SQLITE_PATH.exists():
+                try:
+                    if SQLITE_PATH.exists():
+                        shutil.copy(SQLITE_PATH, TMP_SQLITE_PATH)
+                    else:
+                        TMP_SQLITE_PATH.touch()
+                except OSError:
+                    pass
+            SQLITE_PATH = TMP_SQLITE_PATH
+
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": SQLITE_PATH,
+                "OPTIONS": {"timeout": 20},
+            }
+        }
 
 
 AUTH_PASSWORD_VALIDATORS = [

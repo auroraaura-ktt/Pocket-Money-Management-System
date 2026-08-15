@@ -13,6 +13,7 @@ from budget.periods import PERIOD_DEFINITIONS, period_date_range, period_end_day
 
 @dataclass
 class CategoryComparison:
+    category_id: int | None
     category_name: str
     start_day: int | None
     end_day: int | None
@@ -45,6 +46,7 @@ def _build_comparison(
     actual_amount = to_mmk(actual_amount)
     difference = budget_amount - actual_amount
     return CategoryComparison(
+        category_id=None,
         category_name=category_name,
         start_day=start_day,
         end_day=end_day,
@@ -106,15 +108,15 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
         )
         end_day = period_end_day(budget_month.year, budget_month.month, period.index)
 
-        period_reports.append(
-            _build_comparison(
-                period.name,
-                period.start_day,
-                end_day,
-                budget_amount,
-                actual_amount,
-            )
+        comparison = _build_comparison(
+            period.name,
+            period.start_day,
+            end_day,
+            budget_amount,
+            actual_amount,
         )
+        comparison.category_id = category.id if category else None
+        period_reports.append(comparison)
         total_budget_estimated += budget_amount
         total_actual_spent += actual_amount
 
@@ -124,15 +126,15 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
         actual_amount = _get_total_actual_spent(
             budget_month.id, category_id=category.id
         )
-        period_reports.append(
-            _build_comparison(
-                category.name,
-                None,
-                None,
-                budget_amount,
-                actual_amount,
-            )
+        comparison = _build_comparison(
+            category.name,
+            None,
+            None,
+            budget_amount,
+            actual_amount,
         )
+        comparison.category_id = category.id
+        period_reports.append(comparison)
         total_budget_estimated += budget_amount
         total_actual_spent += actual_amount
 

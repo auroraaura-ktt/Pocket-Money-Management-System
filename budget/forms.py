@@ -164,6 +164,63 @@ class CustomCategoryBudgetForm(forms.Form):
             self.cleaned_data.get("estimated_amount", 0)
         )
         category.save(update_fields=["estimated_amount"])
+
+        month = category.budget_month
+        month.total_money = sum(
+            (item.estimated_amount for item in month.categories.all()),
+            Decimal("0"),
+        )
+        month.save(update_fields=["total_money"])
+        return category
+
+
+class CategoryBudgetUpdateForm(forms.Form):
+    """Update the estimated budget for any category."""
+
+    category = forms.ModelChoiceField(
+        queryset=BudgetCategory.objects.select_related("budget_month").all(),
+        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+    )
+    estimated_amount = forms.DecimalField(
+        label="Estimated Amount (MMK)",
+        min_value=0,
+        max_digits=12,
+        decimal_places=0,
+        widget=forms.NumberInput(
+            attrs={
+                "class": INPUT_CLASS,
+                "min": 0,
+                "step": 1,
+                "placeholder": "0",
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        month_id = None
+        if self.data.get("budget_month"):
+            month_id = self.data.get("budget_month")
+        elif self.initial.get("budget_month"):
+            month_id = self.initial["budget_month"]
+        if month_id:
+            self.fields["category"].queryset = BudgetCategory.objects.filter(
+                budget_month_id=month_id
+            ).order_by("period_index", "id")
+
+    def save(self):
+        category = self.cleaned_data["category"]
+        category.estimated_amount = to_decimal(
+            self.cleaned_data.get("estimated_amount", 0)
+        )
+        category.save(update_fields=["estimated_amount"])
+
+        month = category.budget_month
+        month.total_money = sum(
+            (item.estimated_amount for item in month.categories.all()),
+            Decimal("0"),
+        )
+        month.save(update_fields=["total_money"])
         return category
 
 
@@ -348,6 +405,7 @@ class DailyExpenseForm(forms.ModelForm):
         budget_month = cleaned.get("budget_month")
         category = cleaned.get("category")
         expense_date = cleaned.get("expense_date")
+        amount = cleaned.get("amount")
 
         if budget_month and category and category.budget_month_id != budget_month.id:
             raise ValidationError(
@@ -363,6 +421,9 @@ class DailyExpenseForm(forms.ModelForm):
                     "Expense date must fall within the selected budget month."
                 )
 
+        if amount is not None and amount <= 0:
+            raise ValidationError("Expense amount must be greater than zero.")
+
         if category and expense_date and category.period_index is not None:
             expected_index = period_index_for_day(expense_date.day)
             if category.period_index != expected_index:
@@ -373,6 +434,94 @@ class DailyExpenseForm(forms.ModelForm):
                 )
 
         return cleaned
+
+
+class UnexpectedMoneyForm(forms.ModelForm):
+    """Record additional money received into a category."""
+
+    class Meta:
+        model = DailyExpense
+        fields = ["budget_month", "category", "expense_date", "amount", "note"]
+        widgets = {
+            "budget_month": forms.Select(
+                attrs={"class": INPUT_CLASS, "id": "unexpected-money-budget-month"}
+            ),
+            "category": forms.Select(
+                attrs={"class": INPUT_CLASS, "id": "unexpected-money-category"}
+            ),
+            "expense_date": forms.DateInput(
+                attrs={"class": INPUT_CLASS, "type": "date", "id": "unexpected-money-date"}
+            ),
+            "amount": forms.NumberInput(
+                attrs={
+                    "class": INPUT_CLASS,
+                    "min": 1,
+                    "step": 1,
+                    "placeholder": "5000",
+                }
+            ),
+            "note": forms.TextInput(
+                attrs={"class": INPUT_CLASS, "placeholder": "Bonus, refund, etc."}
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["category"].queryset = BudgetCategory.objects.none()
+        self.fields["category"].empty_label = "Select category..."
+
+        month_id = None
+        if self.data.get("budget_month"):
+            month_id = self.data.get("budget_month")
+        elif self.initial.get("budget_month"):
+            month_id = self.initial["budget_month"]
+
+        if month_id:
+            self.fields["category"].queryset = BudgetCategory.objects.filter(
+                budget_month_id=month_id
+            ).order_by("period_index", "id")
+
+    def clean(self):
+        cleaned = super().clean()
+        budget_month = cleaned.get("budget_month")
+        category = cleaned.get("category")
+        expense_date = cleaned.get("expense_date")
+        amount = cleaned.get("amount")
+
+        if budget_month and category and category.budget_month_id != budget_month.id:
+            raise ValidationError(
+                "Selected category does not belong to the chosen budget month."
+            )
+
+        if budget_month and expense_date:
+            if (
+                expense_date.year != budget_month.year
+                or expense_date.month != budget_month.month
+            ):
+                raise ValidationError(
+                    "Unexpected money date must fall within the selected budget month."
+                )
+
+        if amount is not None and amount <= 0:
+            raise ValidationError("Unexpected money amount must be greater than zero.")
+
+        if category and expense_date and category.period_index is not None:
+            expected_index = period_index_for_day(expense_date.day)
+            if category.period_index != expected_index:
+                raise ValidationError(
+                    f"Date {expense_date} belongs to "
+                    f"'{PERIOD_DEFINITIONS[expected_index - 1].name}', "
+                    f"not '{category.name}'."
+                )
+
+        return cleaned
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.amount = -abs(instance.amount)
+        if commit:
+            instance.save()
+        return instance
 
 
 class ReportSelectForm(forms.Form):

@@ -221,6 +221,35 @@
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6">
         <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Current Category Budgets</h3>
+        <div class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="update_category_budget">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
+                        <select name="budget_month" id="update-category-month" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            {% for bm in budget_months %}
+                            <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.user.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                        <select name="category" id="update-category-select" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">Select category...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">New Estimated Amount (MMK)</label>
+                        {{ category_update_form.estimated_amount }}
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Update Budget</button>
+                </div>
+            </form>
+        </div>
         {% if categories %}
         <div class="overflow-x-auto">
             <table class="w-full">
@@ -235,7 +264,10 @@
                     {% for cat in categories %}
                     <tr class="border-b border-gray-100">
                         <td class="px-4 py-3 text-sm text-gray-600">{{ cat.budget_month.month_label }}</td>
-                        <td class="px-4 py-3 font-medium">{{ cat.name }}</td>
+                        <td class="px-4 py-3 font-medium">
+                            {{ cat.name }}
+                            <button type="button" class="ml-2 text-xs text-blue-600 hover:text-blue-800 underline edit-category-budget" data-category-id="{{ cat.id }}" data-budget-month-id="{{ cat.budget_month.id }}" data-category-name="{{ cat.name }}" data-budget-amount="{{ cat.estimated_amount }}">Edit</button>
+                        </td>
                         <td class="px-4 py-3 text-right">{{ cat.estimated_amount|mmk }}</td>
                     </tr>
                     {% endfor %}
@@ -284,32 +316,66 @@
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Recent Expenses by Category</h3>
-            {% if expenses %}
-            <div class="overflow-x-auto">
-                <table class="w-full">
-                    <thead>
-                        <tr class="bg-gray-100">
-                            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Date</th>
-                            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
-                            <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for exp in expenses %}
-                        <tr class="border-b border-gray-100">
-                            <td class="px-4 py-3 text-sm">{{ exp.expense_date }}</td>
-                            <td class="px-4 py-3">{{ exp.category.name }}</td>
-                            <td class="px-4 py-3 text-right font-medium">{{ exp.amount|mmk }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <p class="text-gray-500 text-center py-8">No expenses recorded yet.</p>
-            {% endif %}
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">Add Unexpected Money</h3>
+            <p class="text-sm text-gray-500 mb-4">Add extra income or a refund to a category. It is recorded as a negative expense so the dashboard reflects the additional available money.</p>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_extra_money">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
+                    {{ unexpected_money_form.budget_month }}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                    {{ unexpected_money_form.category }}
+                    {% if unexpected_money_form.category.errors %}<p class="text-red-600 text-sm mt-1">{{ unexpected_money_form.category.errors.0 }}</p>{% endif %}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                    {{ unexpected_money_form.expense_date }}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
+                    {{ unexpected_money_form.amount }}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Note (optional)</label>
+                    {{ unexpected_money_form.note }}
+                </div>
+                {% if unexpected_money_form.non_field_errors %}
+                <p class="text-red-600 text-sm mb-4">{{ unexpected_money_form.non_field_errors.0 }}</p>
+                {% endif %}
+                <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Add Extra Money</button>
+            </form>
         </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Recent Expenses by Category</h3>
+        {% if expenses %}
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="bg-gray-100">
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Date</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for exp in expenses %}
+                    <tr class="border-b border-gray-100">
+                        <td class="px-4 py-3 text-sm">{{ exp.expense_date }}</td>
+                        <td class="px-4 py-3">{{ exp.category.name }}</td>
+                        <td class="px-4 py-3 text-right font-medium {% if exp.amount < 0 %}text-green-600{% else %}text-gray-900{% endif %}">{{ exp.amount|mmk }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-gray-500 text-center py-8">No expenses recorded yet.</p>
+        {% endif %}
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -350,6 +416,9 @@
                     <tr class="border-b border-gray-100">
                         <td class="px-4 py-3 font-medium">
                             {{ item.category_name }}
+                            {% if item.category_id %}
+                            <button type="button" class="ml-2 text-xs text-blue-600 hover:text-blue-800 underline edit-category-budget" data-category-id="{{ item.category_id }}" data-budget-month-id="{{ expense_comparison_month.id }}" data-category-name="{{ item.category_name }}" data-budget-amount="{{ item.budget_amount }}">Edit</button>
+                            {% endif %}
                             {% if item.start_day is not None %}
                             <span class="block text-xs text-gray-500">Day {{ item.start_day }} – {{ item.end_day }}</span>
                             {% endif %}
@@ -443,6 +512,75 @@ document.addEventListener('DOMContentLoaded', function() {
 
         customMonthSelect.addEventListener('change', () => loadCustomCategories(customMonthSelect.value));
         if (customMonthSelect.value) loadCustomCategories(customMonthSelect.value);
+    }
+
+    // --- Budget update form: fill categories and prefill clicked edit action ---
+    const updateMonthSelect = document.getElementById('update-category-month');
+    const updateCategorySelect = document.getElementById('update-category-select');
+    const updateAmountInputs = document.querySelectorAll('input[name="estimated_amount"]');
+    const updateAmountInput = updateAmountInputs.length ? updateAmountInputs[updateAmountInputs.length - 1] : null;
+
+    async function loadUpdateCategories(monthId) {
+        if (!updateMonthSelect || !updateCategorySelect) return;
+        if (!monthId) {
+            updateCategorySelect.innerHTML = '<option value="">Select category...</option>';
+            return;
+        }
+        const resp = await fetch(`/api/categories/${monthId}/`);
+        const data = await resp.json();
+        updateCategorySelect.innerHTML = '<option value="">Select category...</option>';
+        data.categories.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat.id;
+            opt.textContent = cat.name;
+            updateCategorySelect.appendChild(opt);
+        });
+    }
+
+    if (updateMonthSelect && updateCategorySelect) {
+        updateMonthSelect.addEventListener('change', () => loadUpdateCategories(updateMonthSelect.value));
+        if (updateMonthSelect.value) loadUpdateCategories(updateMonthSelect.value);
+    }
+
+    document.querySelectorAll('.edit-category-budget').forEach(button => {
+        button.addEventListener('click', async function() {
+            const monthSelect = document.getElementById('update-category-month');
+            const categorySelect = document.getElementById('update-category-select');
+            const amountInput = document.querySelectorAll('input[name="estimated_amount"]')[document.querySelectorAll('input[name="estimated_amount"]').length - 1];
+            if (!monthSelect || !categorySelect || !amountInput) return;
+
+            const selectedMonthId = this.dataset.budgetMonthId || monthSelect.value;
+            monthSelect.value = selectedMonthId;
+            await loadUpdateCategories(selectedMonthId);
+            categorySelect.value = this.dataset.categoryId;
+            amountInput.value = this.dataset.budgetAmount;
+            amountInput.focus();
+        });
+    });
+
+    // --- Unexpected money category loader ---
+    const unexpectedMonthSelect = document.getElementById('unexpected-money-budget-month');
+    const unexpectedCategorySelect = document.getElementById('unexpected-money-category');
+
+    if (unexpectedMonthSelect && unexpectedCategorySelect) {
+        async function loadUnexpectedCategories(monthId) {
+            if (!monthId) {
+                unexpectedCategorySelect.innerHTML = '<option value="">Select category...</option>';
+                return;
+            }
+            const resp = await fetch(`/api/categories/${monthId}/`);
+            const data = await resp.json();
+            unexpectedCategorySelect.innerHTML = '<option value="">Select category...</option>';
+            data.categories.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat.id;
+                opt.textContent = cat.name;
+                unexpectedCategorySelect.appendChild(opt);
+            });
+        }
+
+        unexpectedMonthSelect.addEventListener('change', () => loadUnexpectedCategories(unexpectedMonthSelect.value));
+        if (unexpectedMonthSelect.value) loadUnexpectedCategories(unexpectedMonthSelect.value);
     }
 });
 </script>
