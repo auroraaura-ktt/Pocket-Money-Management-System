@@ -1,6 +1,7 @@
 """Django settings for Pocket Money Management System."""
 
 import os
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -13,7 +14,29 @@ SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me-in-production")
 
 DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "yes")
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+# True when the app runs inside a serverless (read-only) Vercel container.
+ON_VERCEL = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
+
+ALLOWED_HOSTS = [
+    host.strip().replace("https://", "").replace("http://", "").rstrip("/")
+    for host in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+    if host.strip()
+]
+
+if ON_VERCEL:
+    ALLOWED_HOSTS.append(".vercel.app")
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
+if ON_VERCEL:
+    CSRF_TRUSTED_ORIGINS.append("https://*.vercel.app")
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
+
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -27,9 +50,11 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
+
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -54,12 +79,56 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+# On Vercel the deployment bundle (/var/task) is READ-ONLY, so a SQLite file
+# living next to the code can never be written to ("attempt to write a readonly
+# database").  For any real deployment set DATABASE_URL to a hosted Postgres
+# instance (Vercel Postgres, Neon, Supabase, Railway...).
+#
+# If DATABASE_URL is not set while running on Vercel we fall back to copying the
+# bundled SQLite file into /tmp (the only writable location).  That keeps the
+# site functional, but /tmp is ephemeral: data is lost when the lambda is
+# recycled.  It is a stop-gap only.
+
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+if DATABASE_URL:
+    import dj_database_url
+
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=0,
+            ssl_require=os.getenv("DATABASE_SSL_REQUIRE", "True").lower()
+            in ("true", "1", "yes"),
+        )
     }
-}
+else:
+    SQLITE_PATH = BASE_DIR / "db.sqlite3"
+
+    if ON_VERCEL:
+        # /tmp is the only writable path in the serverless runtime.
+        TMP_SQLITE_PATH = Path("/tmp") / "db.sqlite3"
+        if not TMP_SQLITE_PATH.exists():
+            try:
+                if SQLITE_PATH.exists():
+                    shutil.copy(SQLITE_PATH, TMP_SQLITE_PATH)
+                else:
+                    TMP_SQLITE_PATH.touch()
+            except OSError:
+                pass
+        SQLITE_PATH = TMP_SQLITE_PATH
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": SQLITE_PATH,
+            "OPTIONS": {"timeout": 20},
+        }
+    }
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
