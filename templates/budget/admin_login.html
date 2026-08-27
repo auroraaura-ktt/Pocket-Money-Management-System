@@ -1,0 +1,40 @@
+{% extends "budget/base.html" %}
+
+{% block title %}Admin Login - Pocket Money{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto px-4 py-16">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+        <div class="mb-4">
+            <div class="text-3xl mb-2">🔐</div>
+            <h1 class="text-2xl font-bold text-gray-900">Administrator Login</h1>
+            <p class="text-gray-500 text-sm mt-1">Restricted to staff / superuser accounts.</p>
+        </div>
+
+        {% if form.non_field_errors %}
+        <div class="mb-4 px-4 py-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200">
+            {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+
+        <form method="post" novalidate>
+            {% csrf_token %}
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                {{ form.username }}
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                {{ form.password }}
+            </div>
+            <button type="submit" class="w-full bg-gray-900 hover:bg-black text-white font-semibold px-5 py-2.5 rounded-lg transition">
+                Admin Login
+            </button>
+        </form>
+
+        <p class="mt-6 text-sm text-gray-500 text-center">
+            <a href="{% url 'budget:login' %}" class="text-blue-600 hover:underline">Regular user login</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

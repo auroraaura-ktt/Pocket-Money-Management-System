@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import F, Sum
+from django.db.models.functions import Abs
 
 from budget.currency import to_mmk
 from budget.models import BudgetMonth, DailyExpense
@@ -28,11 +29,14 @@ class MonthlyReport:
     year: int
     month: int
     total_money: Decimal
+    adjusted_total_money: Decimal
     total_budget_estimated: Decimal
     total_actual_spent: Decimal
+    remaining_balance: Decimal
     overall_difference: Decimal
     overall_status: str
     period_reports: list[CategoryComparison]
+    zero_spend_periods: list[str]
 
 
 def _build_comparison(
@@ -67,7 +71,14 @@ def _get_total_actual_spent(
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> Decimal:
-    """Direct sum of daily expenses in the date range (optionally by category)."""
+    """Direct sum of daily expense amounts in the date range (optionally by category).
+
+    Every expense is treated as money spent, so the amount is summed as its
+    magnitude. A negative amount (which is how "extra money" is stored) is
+    therefore counted as an outgoing expense rather than adding money back to
+    the balance. This keeps remaining_balance = total_money - actual_spent
+    correct and non-inflated.
+    """
     qs = DailyExpense.objects.filter(budget_month_id=budget_month_id)
     if category_id:
         qs = qs.filter(category_id=category_id)
@@ -75,7 +86,7 @@ def _get_total_actual_spent(
         qs = qs.filter(expense_date__gte=start_date)
     if end_date:
         qs = qs.filter(expense_date__lte=end_date)
-    total = qs.aggregate(total=Sum("amount"))["total"]
+    total = qs.aggregate(total=Sum(Abs(F("amount"))))["total"]
     return to_mmk(total)
 
 
@@ -99,6 +110,7 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
     period_reports: list[CategoryComparison] = []
     total_budget_estimated = Decimal("0")
     total_actual_spent = Decimal("0")
+    zero_spend_periods: list[str] = []
 
     # Period categories (Days 1-10, 11-20, 21-end)
     for period in PERIOD_DEFINITIONS:
@@ -127,6 +139,10 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
         total_budget_estimated += budget_amount
         total_actual_spent += actual_amount
 
+        # If no money was spent in this period, its budget is added back to available money
+        if actual_amount == 0:
+            zero_spend_periods.append(period.name)
+
     # Custom categories (whole month)
     for category in custom_categories:
         budget_amount = to_mmk(category.estimated_amount)
@@ -148,15 +164,32 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
     total_budget_estimated = to_mmk(total_budget_estimated)
     total_actual_spent = to_mmk(total_actual_spent)
     total_money = to_mmk(budget_month.total_money)
-    overall_diff = total_money - total_actual_spent
+
+    # For each period with zero spending, subtract its budget from available money
+    # (that money is effectively "saved" and remains available)
+    zero_spend_budget = Decimal("0")
+    for period in PERIOD_DEFINITIONS:
+        if period.name in zero_spend_periods:
+            category = categories_by_period.get(period.index)
+            if category:
+                zero_spend_budget += to_mmk(category.estimated_amount)
+
+    adjusted_total_money = to_mmk(total_money - zero_spend_budget)
+    overall_diff = adjusted_total_money - total_actual_spent
+
+    # Remaining balance = Available Money − Actually Spent Money
+    remaining_balance = to_mmk(total_money - total_actual_spent)
 
     return MonthlyReport(
         year=budget_month.year,
         month=budget_month.month,
         total_money=total_money,
+        adjusted_total_money=adjusted_total_money,
         total_budget_estimated=total_budget_estimated,
         total_actual_spent=total_actual_spent,
+        remaining_balance=remaining_balance,
         overall_difference=abs(overall_diff),
         overall_status="surplus" if overall_diff >= 0 else "deficit",
         period_reports=period_reports,
+        zero_spend_periods=zero_spend_periods,
     )

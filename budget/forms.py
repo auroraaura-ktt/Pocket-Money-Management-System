@@ -3,11 +3,19 @@
 from decimal import Decimal
 
 from django import forms
+from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 
 from budget.periods import PERIOD_DEFINITIONS, period_index_for_day
 
-from .models import BudgetCategory, BudgetMonth, DailyExpense, PocketUser
+from .models import (
+    Balance,
+    BudgetCategory,
+    BudgetMonth,
+    DailyExpense,
+    PocketUser,
+)
 
 INPUT_CLASS = (
     "w-full px-4 py-2.5 border border-gray-300 rounded-lg "
@@ -32,6 +40,86 @@ class UserForm(forms.ModelForm):
         }
 
 
+class UserRegistrationForm(UserCreationForm):
+    """Create an authenticated (Django) user account plus a PocketUser."""
+
+    email = forms.EmailField(
+        required=True,
+        widget=forms.EmailInput(
+            attrs={"class": INPUT_CLASS, "placeholder": "you@example.com"}
+        ),
+    )
+
+    class Meta:
+        model = User
+        fields = ["username", "email"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["username"].widget.attrs.update(
+            {
+                "class": INPUT_CLASS,
+                "placeholder": "Choose a username",
+                "autofocus": True,
+            }
+        )
+        self.fields["username"].help_text = (
+            "150 characters or fewer. Letters, digits and @/./+/-/_ only."
+        )
+        self.fields["password1"].widget.attrs.update(
+            {
+                "class": INPUT_CLASS,
+                "placeholder": "Enter a password",
+            }
+        )
+        self.fields["password1"].help_text = (
+            "Your password must contain at least 8 characters and cannot be "
+            "entirely numeric or too common."
+        )
+        self.fields["password2"].widget.attrs.update(
+            {
+                "class": INPUT_CLASS,
+                "placeholder": "Confirm password",
+            }
+        )
+        self.fields["password2"].help_text = ""
+        self.fields["password1"].label = "Password"
+        self.fields["password2"].label = "Confirm password"
+
+    def save(self, commit=True):
+        user = super().save(commit=commit)
+        # Link/create the PocketUser that owns this account's budget data and
+        # ensure it has at least one default sub-balance list.
+        email = self.cleaned_data.get("email", "").strip().lower()
+        pocket, created = PocketUser.objects.get_or_create(
+            email=email,
+            defaults={"name": user.username, "auth_user": user},
+        )
+        if not created:
+            pocket.name = user.username
+            pocket.auth_user = user
+            pocket.save(update_fields=["name", "auth_user"])
+        if not pocket.balances.exists():
+            Balance.objects.create(user=pocket, name="Main Wallet")
+        return user
+
+
+class BalanceForm(forms.ModelForm):
+    """Create a named sub-balance list within the user's account."""
+
+    class Meta:
+        model = Balance
+        fields = ["name"]
+        widgets = {
+            "name": forms.TextInput(
+                attrs={
+                    "class": INPUT_CLASS,
+                    "placeholder": "e.g. Main Wallet, Savings",
+                }
+            ),
+        }
+
+
 class BudgetMonthForm(forms.ModelForm):
     """Create a budget month with a total money amount.
 
@@ -47,11 +135,16 @@ class BudgetMonthForm(forms.ModelForm):
         widget=forms.Select(attrs={"class": INPUT_CLASS}),
     )
 
+    balance = forms.ModelChoiceField(
+        queryset=Balance.objects.none(),
+        empty_label="Select a sub balance...",
+        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+    )
+
     class Meta:
         model = BudgetMonth
-        fields = ["user", "year", "month", "total_money"]
+        fields = ["balance", "year", "month", "total_money"]
         widgets = {
-            "user": forms.Select(attrs={"class": INPUT_CLASS}),
             "year": forms.NumberInput(
                 attrs={"class": INPUT_CLASS, "min": 2020, "max": 2100}
             ),
@@ -66,9 +159,13 @@ class BudgetMonthForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        balance_qs = kwargs.pop("balance_qs", None)
         super().__init__(*args, **kwargs)
         from django.conf import settings
         from django.utils import timezone
+
+        if balance_qs is not None:
+            self.fields["balance"].queryset = balance_qs
 
         self.fields["month"].choices = [
             (i, settings.MONTH_NAMES[i]) for i in range(1, 13)
@@ -147,16 +244,23 @@ class CustomCategoryBudgetForm(forms.Form):
     )
 
     def __init__(self, *args, **kwargs):
+        month_qs = kwargs.pop("month_qs", None)
+        category_qs = kwargs.pop("category_qs", None)
         super().__init__(*args, **kwargs)
+        if month_qs is not None:
+            self.fields["budget_month"].queryset = month_qs
         month_id = None
         if self.data.get("budget_month"):
             month_id = self.data.get("budget_month")
         elif self.initial.get("budget_month"):
             month_id = self.initial["budget_month"]
         if month_id:
-            self.fields["category"].queryset = BudgetCategory.objects.filter(
+            qs = BudgetCategory.objects.filter(
                 budget_month_id=month_id, period_index__isnull=True
             ).order_by("id")
+            if category_qs is not None:
+                qs = qs.filter(pk__in=category_qs.values_list("pk", flat=True))
+            self.fields["category"].queryset = qs
 
     def save(self):
         category = self.cleaned_data["category"]
@@ -197,14 +301,22 @@ class CategoryBudgetUpdateForm(forms.Form):
     )
 
     def __init__(self, *args, **kwargs):
+        month_qs = kwargs.pop("month_qs", None)
+        category_qs = kwargs.pop("category_qs", None)
         super().__init__(*args, **kwargs)
+        if category_qs is not None:
+            self.fields["category"].queryset = category_qs
         month_id = None
         if self.data.get("budget_month"):
             month_id = self.data.get("budget_month")
         elif self.initial.get("budget_month"):
             month_id = self.initial["budget_month"]
-        if month_id:
+        if month_id and category_qs is None:
             self.fields["category"].queryset = BudgetCategory.objects.filter(
+                budget_month_id=month_id
+            ).order_by("period_index", "id")
+        elif month_id and category_qs is not None:
+            self.fields["category"].queryset = category_qs.filter(
                 budget_month_id=month_id
             ).order_by("period_index", "id")
 
@@ -238,7 +350,10 @@ class PeriodBudgetForm(forms.Form):
     )
 
     def __init__(self, *args, **kwargs):
+        month_qs = kwargs.pop("month_qs", None)
         super().__init__(*args, **kwargs)
+        if month_qs is not None:
+            self.fields["budget_month"].queryset = month_qs
         for period in PERIOD_DEFINITIONS:
             self.fields[f"period_{period.index}"] = forms.DecimalField(
                 label=period.name,
@@ -385,7 +500,11 @@ class DailyExpenseForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        month_qs = kwargs.pop("month_qs", None)
+        category_qs = kwargs.pop("category_qs", None)
         super().__init__(*args, **kwargs)
+        if month_qs is not None:
+            self.fields["budget_month"].queryset = month_qs
         self.fields["category"].queryset = BudgetCategory.objects.none()
         self.fields["category"].empty_label = "Select category..."
 
@@ -396,7 +515,12 @@ class DailyExpenseForm(forms.ModelForm):
             month_id = self.initial["budget_month"]
 
         if month_id:
-            self.fields["category"].queryset = BudgetCategory.objects.filter(
+            base_qs = (
+                category_qs
+                if category_qs is not None
+                else BudgetCategory.objects
+            )
+            self.fields["category"].queryset = base_qs.filter(
                 budget_month_id=month_id
             ).order_by("period_index", "id")
 
@@ -478,10 +602,14 @@ class UnexpectedMoneyForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        month_qs = kwargs.pop("month_qs", None)
+        category_qs = kwargs.pop("category_qs", None)
         super().__init__(*args, **kwargs)
         self.fields["category"].required = False
         self.fields["category"].queryset = BudgetCategory.objects.none()
         self.fields["category"].empty_label = "Select category..."
+        if month_qs is not None:
+            self.fields["budget_month"].queryset = month_qs
 
         month_id = None
         if self.data.get("budget_month"):
@@ -490,7 +618,12 @@ class UnexpectedMoneyForm(forms.ModelForm):
             month_id = self.initial["budget_month"]
 
         if month_id:
-            self.fields["category"].queryset = BudgetCategory.objects.filter(
+            base_qs = (
+                category_qs
+                if category_qs is not None
+                else BudgetCategory.objects
+            )
+            self.fields["category"].queryset = base_qs.filter(
                 budget_month_id=month_id
             ).order_by("period_index", "id")
 
@@ -576,10 +709,16 @@ class UnexpectedMoneyForm(forms.ModelForm):
 
 class ReportSelectForm(forms.Form):
     budget_month = forms.ModelChoiceField(
-        queryset=BudgetMonth.objects.select_related("user").all(),
+        queryset=BudgetMonth.objects.none(),
         empty_label="Select a month...",
         widget=forms.Select(attrs={"class": INPUT_CLASS}),
     )
+
+    def __init__(self, *args, **kwargs):
+        month_qs = kwargs.pop("month_qs", None)
+        super().__init__(*args, **kwargs)
+        if month_qs is not None:
+            self.fields["budget_month"].queryset = month_qs
 
 
 def to_decimal(value) -> Decimal:

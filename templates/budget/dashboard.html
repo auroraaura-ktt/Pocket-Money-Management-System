@@ -17,19 +17,38 @@
     {% if tab == 'setup' %}
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Register User</h3>
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Sub Balances</h3>
+            <p class="text-sm text-gray-500 mb-4">Create named balance lists (e.g. Main Wallet, Savings) and group your budget months under them.</p>
+
+            <h4 class="text-sm font-semibold text-gray-700 mb-2">Your balances</h4>
+            <ul class="space-y-2 mb-5">
+                {% for balance in balances %}
+                <li class="flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200">
+                    <span class="font-medium text-gray-800">
+                        💰 {{ balance.name }}
+                        <span class="text-xs text-gray-400">({{ balance.months.count }} month{{ balance.months.count|pluralize }})</span>
+                    </span>
+                    <form method="post" class="inline-block">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="delete_balance">
+                        <input type="hidden" name="balance_id" value="{{ balance.id }}">
+                        <button type="submit" class="text-xs text-red-600 hover:text-red-800 underline"
+                            onclick="return confirm('Delete this sub balance? Budget months under it must be deleted first.');">Delete</button>
+                    </form>
+                </li>
+                {% empty %}
+                <li class="text-sm text-gray-400">No sub balances yet. Create one below.</li>
+                {% endfor %}
+            </ul>
+
             <form method="post">
                 {% csrf_token %}
-                <input type="hidden" name="action" value="register_user">
+                <input type="hidden" name="action" value="create_balance">
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Name</label>
-                    {{ user_form.name }}
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Balance name</label>
+                    {{ balance_form.name }}
                 </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Email (for reports)</label>
-                    {{ user_form.email }}
-                </div>
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Register</button>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Add Balance</button>
             </form>
         </div>
 
@@ -40,8 +59,8 @@
                 <input type="hidden" name="action" id="budget-month-action" value="create_budget">
                 <input type="hidden" name="budget_month_id" id="budget-month-id" value="">
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">User</label>
-                    {{ budget_form.user }}
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Sub Balance</label>
+                    {{ budget_form.balance }}
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div class="mb-4">
@@ -71,7 +90,7 @@
             <table class="w-full">
                 <thead>
                     <tr class="bg-gray-100">
-                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">User</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Sub Balance</th>
                         <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Month</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Total Money</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Categories</th>
@@ -80,12 +99,12 @@
                 <tbody>
                     {% for bm in budget_months %}
                     <tr class="border-b border-gray-100">
-                        <td class="px-4 py-3">{{ bm.user.name }}</td>
+                        <td class="px-4 py-3">{{ bm.balance.name|default:bm.user.name }}</td>
                         <td class="px-4 py-3">{{ bm.month_label }}</td>
                         <td class="px-4 py-3 text-right font-medium">{{ bm.total_money|mmk }}</td>
                         <td class="px-4 py-3 text-right">
                             <div class="flex items-center justify-end gap-3">
-                                <button type="button" class="text-xs text-blue-600 hover:text-blue-800 underline edit-budget-month" data-budget-month-id="{{ bm.id }}" data-user-id="{{ bm.user.id }}" data-year="{{ bm.year }}" data-month="{{ bm.month }}" data-total-money="{{ bm.total_money }}">Edit</button>
+                                <button type="button" class="text-xs text-blue-600 hover:text-blue-800 underline edit-budget-month" data-budget-month-id="{{ bm.id }}" data-balance-id="{% if bm.balance %}{{ bm.balance.id }}{% endif %}" data-year="{{ bm.year }}" data-month="{{ bm.month }}" data-total-money="{{ bm.total_money }}">Edit</button>
                                 <form method="post" class="inline-block">
                                     {% csrf_token %}
                                     <input type="hidden" name="action" value="delete_budget_month">
@@ -208,7 +227,7 @@
                     <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
                     <select name="budget_month" id="custom-budget-month" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         {% for bm in budget_months %}
-                        <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.user.name }}</option>
+                        <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.balance.name|default:bm.user.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -242,7 +261,7 @@
                         <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
                         <select name="budget_month" id="update-category-month" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                             {% for bm in budget_months %}
-                            <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.user.name }}</option>
+                            <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.balance.name|default:bm.user.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -298,6 +317,24 @@
     </div>
 
     {% elif tab == 'expenses' %}
+    {% if expense_report %}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Total Money (Available)</p>
+            <p class="text-2xl font-bold text-gray-900">{{ expense_report.total_money|mmk }}</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Actually Spent</p>
+            <p class="text-2xl font-bold text-gray-900">{{ expense_report.total_actual_spent|mmk }}</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border p-5 {% if expense_report.remaining_balance >= 0 %}border-blue-200 bg-blue-50{% else %}border-red-200 bg-red-50{% endif %}">
+            <p class="text-sm text-gray-500 mb-1">Remaining Balance</p>
+            <p class="text-2xl font-bold {% if expense_report.remaining_balance >= 0 %}text-blue-600{% else %}text-red-600{% endif %}">{{ expense_report.remaining_balance|mmk }}</p>
+            <p class="text-xs text-gray-500 mt-1">Available − Spent</p>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 class="text-lg font-semibold text-gray-900 mb-2">Add Daily Expense</h3>
@@ -417,7 +454,7 @@
                     <label class="block text-sm font-medium text-gray-700 mb-2">Month</label>
                     <select name="budget_month" id="edit-expense-budget-month" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         {% for bm in budget_months %}
-                        <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.user.name }}</option>
+                        <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.balance.name|default:bm.user.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -462,7 +499,7 @@
                     <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
                     <select name="expense_month" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" onchange="this.form.submit()">
                         {% for bm in budget_months %}
-                        <option value="{{ bm.id }}" {% if expense_comparison_month and bm.id == expense_comparison_month.id %}selected{% endif %}>{{ bm.month_label }} — {{ bm.user.name }}</option>
+                        <option value="{{ bm.id }}" {% if expense_comparison_month and bm.id == expense_comparison_month.id %}selected{% endif %}>{{ bm.month_label }} — {{ bm.balance.name|default:bm.user.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -526,15 +563,15 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.edit-budget-month').forEach(button => {
         button.addEventListener('click', function() {
             if (!budgetMonthAction || !budgetMonthIdInput || !budgetMonthSubmit || !cancelBudgetMonthEdit) return;
-            const userField = document.getElementById('id_user');
+            const balanceField = document.getElementById('id_balance');
             const yearField = document.getElementById('id_year');
             const monthField = document.getElementById('id_month');
             const totalMoneyField = document.getElementById('id_total_money');
-            if (!userField || !yearField || !monthField || !totalMoneyField) return;
+            if (!balanceField || !yearField || !monthField || !totalMoneyField) return;
 
             budgetMonthAction.value = 'edit_budget_month';
             budgetMonthIdInput.value = this.dataset.budgetMonthId;
-            userField.value = this.dataset.userId || userField.value;
+            balanceField.value = this.dataset.balanceId || balanceField.value;
             yearField.value = this.dataset.year || yearField.value;
             monthField.value = this.dataset.month || monthField.value;
             totalMoneyField.value = this.dataset.totalMoney || totalMoneyField.value;

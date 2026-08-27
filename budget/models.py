@@ -7,6 +7,13 @@ from django.db import models
 class PocketUser(models.Model):
     name = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
+    auth_user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pocket_user_profile",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -16,9 +23,37 @@ class PocketUser(models.Model):
         return self.name
 
 
+class Balance(models.Model):
+    """A named sub-balance list a user creates to group their budget months."""
+
+    user = models.ForeignKey(
+        PocketUser, on_delete=models.CASCADE, related_name="balances"
+    )
+    name = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "name"], name="uq_user_balance_name"
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class BudgetMonth(models.Model):
     user = models.ForeignKey(
         PocketUser, on_delete=models.CASCADE, related_name="months"
+    )
+    balance = models.ForeignKey(
+        Balance,
+        on_delete=models.CASCADE,
+        related_name="months",
+        null=True,
+        blank=True,
     )
     year = models.PositiveIntegerField()
     month = models.PositiveSmallIntegerField()

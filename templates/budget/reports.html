@@ -23,23 +23,31 @@
     </div>
 
     {% if report %}
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <p class="text-sm text-gray-500 mb-1">Total Money</p>
+            <p class="text-sm text-gray-500 mb-1">Total Money (Available)</p>
             <p class="text-2xl font-bold text-gray-900">{{ report.total_money|mmk }}</p>
-        </div>
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <p class="text-sm text-gray-500 mb-1">Budget Estimated</p>
-            <p class="text-2xl font-bold text-gray-900">{{ report.total_budget_estimated|mmk }}</p>
         </div>
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <p class="text-sm text-gray-500 mb-1">Actually Spent</p>
             <p class="text-2xl font-bold text-gray-900">{{ report.total_actual_spent|mmk }}</p>
         </div>
+        <div class="bg-white rounded-xl shadow-sm border p-5 {% if report.remaining_balance >= 0 %}border-blue-200 bg-blue-50{% else %}border-red-200 bg-red-50{% endif %}">
+            <p class="text-sm text-gray-500 mb-1">Remaining Balance</p>
+            <p class="text-2xl font-bold {% if report.remaining_balance >= 0 %}text-blue-600{% else %}text-red-600{% endif %}">{{ report.remaining_balance|mmk }}</p>
+            <p class="text-xs text-gray-500 mt-1">Available − Spent</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Adjusted Available Money</p>
+            <p class="text-2xl font-bold text-gray-900">{{ report.adjusted_total_money|mmk }}</p>
+            {% if report.zero_spend_periods %}
+            <p class="text-xs text-amber-600 mt-1">No spend: {{ report.zero_spend_periods|join:", " }}</p>
+            {% endif %}
+        </div>
         <div class="bg-white rounded-xl shadow-sm border p-5 {% if report.overall_status == 'surplus' %}border-green-200 bg-green-50{% else %}border-red-200 bg-red-50{% endif %}">
             <p class="text-sm text-gray-500 mb-1">Monthly {{ report.overall_status|title }}</p>
             <p class="text-2xl font-bold {% if report.overall_status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ report.overall_difference|mmk }}</p>
-            <p class="text-xs text-gray-500 mt-1">Total money − total spent</p>
+            <p class="text-xs text-gray-500 mt-1">Adjusted money − total spent</p>
         </div>
     </div>
 
@@ -83,7 +91,7 @@
             <input type="hidden" name="action" value="email">
             <input type="hidden" name="budget_month" value="{{ selected_month.id }}">
             <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-6 py-3 rounded-lg transition">
-                📧 Send All Reports (1-10, 11-20, 21-end, Full) to {{ selected_month.user.email }}
+                📧 Send Total Report to {{ selected_month.user.email }}
             </button>
         </form>
     </div>

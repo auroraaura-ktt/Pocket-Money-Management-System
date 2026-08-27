@@ -1,0 +1,134 @@
+{% extends "budget/base.html" %}
+{% load currency_tags %}
+
+{% block title %}Admin Dashboard - Pocket Money{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto p-4 md:p-8">
+    <div class="flex flex-wrap items-end justify-between mb-8 gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
+            <p class="text-gray-500">System-wide summary and recent activity.</p>
+        </div>
+        <div class="flex gap-2">
+            <a href="{% url 'admin:index' %}" class="bg-gray-900 hover:bg-black text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">Django Admin</a>
+        </div>
+    </div>
+
+    <!-- Summary stat cards -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+        <a href="{% url 'admin:budget_pocketuser_changelist' %}" class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:border-blue-300 transition">
+            <p class="text-sm text-gray-500 mb-1">👥 Users</p>
+            <p class="text-2xl font-bold text-gray-900">{{ total_users }}</p>
+        </a>
+        <a href="{% url 'admin:budget_balance_changelist' %}" class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:border-blue-300 transition">
+            <p class="text-sm text-gray-500 mb-1">💰 Balances</p>
+            <p class="text-2xl font-bold text-gray-900">{{ total_balances }}</p>
+        </a>
+        <a href="{% url 'admin:budget_budgetmonth_changelist' %}" class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:border-blue-300 transition">
+            <p class="text-sm text-gray-500 mb-1">📅 Budget Months</p>
+            <p class="text-2xl font-bold text-gray-900">{{ total_months }}</p>
+        </a>
+        <a href="{% url 'admin:budget_budgetcategory_changelist' %}" class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:border-blue-300 transition">
+            <p class="text-sm text-gray-500 mb-1">🏷️ Categories</p>
+            <p class="text-2xl font-bold text-gray-900">{{ total_categories }}</p>
+        </a>
+        <a href="{% url 'admin:budget_dailyexpense_changelist' %}" class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:border-blue-300 transition">
+            <p class="text-sm text-gray-500 mb-1">🧾 Daily Expenses</p>
+            <p class="text-2xl font-bold text-gray-900">{{ total_expenses }}</p>
+        </a>
+        <a href="{% url 'admin:budget_reportemaillog_changelist' %}" class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:border-blue-300 transition">
+            <p class="text-sm text-gray-500 mb-1">📧 Report Emails</p>
+            <p class="text-2xl font-bold text-gray-900">{{ total_emails }}</p>
+        </a>
+    </div>
+
+    <!-- Financial summary -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Total Money Allocated</p>
+            <p class="text-2xl font-bold text-green-600">{{ total_allocated|mmk }}</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Total Spent</p>
+            <p class="text-2xl font-bold text-red-600">{{ total_spent|mmk }}</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border {% if total_remaining >= 0 %}border-blue-200 bg-blue-50{% else %}border-red-200 bg-red-50{% endif %} p-5">
+            <p class="text-sm text-gray-500 mb-1">Remaining Balance</p>
+            <p class="text-2xl font-bold {% if total_remaining >= 0 %}text-blue-600{% else %}text-red-600{% endif %}">{{ total_remaining|mmk }}</p>
+            <p class="text-xs text-gray-500 mt-1">Allocated − Spent</p>
+        </div>
+    </div>
+
+    <!-- Recent activity -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Latest Users</h3>
+            <ul class="divide-y divide-gray-100">
+                {% for user in recent_users %}
+                <li class="py-3 flex items-center justify-between">
+                    <div>
+                        <p class="font-medium text-gray-800">{{ user.name }}</p>
+                        <p class="text-sm text-gray-500">{{ user.email }}</p>
+                    </div>
+                    <span class="text-xs text-gray-400">{{ user.created_at|date:"M d, Y" }}</span>
+                </li>
+                {% empty %}
+                <li class="text-sm text-gray-400 py-2">No users yet.</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Latest Budget Months</h3>
+            <ul class="divide-y divide-gray-100">
+                {% for month in recent_months %}
+                <li class="py-3 flex items-center justify-between">
+                    <div>
+                        <p class="font-medium text-gray-800">{{ month.user.name }} — {{ month.month_label }}</p>
+                        <p class="text-sm text-gray-500">{{ month.total_money|mmk }}</p>
+                    </div>
+                    <span class="text-xs text-gray-400">{{ month.created_at|date:"M d, Y" }}</span>
+                </li>
+                {% empty %}
+                <li class="text-sm text-gray-400 py-2">No budget months yet.</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Latest Expenses</h3>
+            <ul class="divide-y divide-gray-100">
+                {% for expense in recent_expenses %}
+                <li class="py-3 flex items-center justify-between">
+                    <div>
+                        <p class="font-medium text-gray-800">{{ expense.budget_month.user.name }} · {{ expense.budget_month.month_label }}</p>
+                        <p class="text-sm text-gray-500">{{ expense.expense_date|date:"M d, Y" }} — {{ expense.category.name }}</p>
+                    </div>
+                    <span class="text-sm font-semibold text-gray-700">{{ expense.amount|mmk }}</span>
+                </li>
+                {% empty %}
+                <li class="text-sm text-gray-400 py-2">No expenses recorded yet.</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Latest Report Emails</h3>
+            <ul class="divide-y divide-gray-100">
+                {% for email in recent_emails %}
+                <li class="py-3 flex items-center justify-between">
+                    <div>
+                        <p class="font-medium text-gray-800">{{ email.budget_month.user.name }} — {{ email.budget_month.month_label }}</p>
+                        <p class="text-sm text-gray-500">{{ email.get_report_type_display }}</p>
+                    </div>
+                    <span class="text-xs text-gray-400">{{ email.sent_at|date:"M d, Y H:i" }}</span>
+                </li>
+                {% empty %}
+                <li class="text-sm text-gray-400 py-2">No report emails sent yet.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

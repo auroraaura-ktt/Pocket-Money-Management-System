@@ -3,12 +3,21 @@
 from django.contrib import admin
 
 from budget.models import (
+    Balance,
     BudgetCategory,
     BudgetMonth,
     DailyExpense,
     PocketUser,
     ReportEmailLog,
 )
+
+
+@admin.register(Balance)
+class BalanceAdmin(admin.ModelAdmin):
+    list_display = ("name", "user", "created_at")
+    list_filter = ("user",)
+    search_fields = ("name", "user__name", "user__email")
+    ordering = ("user", "name")
 
 
 @admin.register(PocketUser)

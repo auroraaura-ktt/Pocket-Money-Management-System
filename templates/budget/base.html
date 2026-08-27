@@ -25,6 +25,20 @@
         <a href="{% url 'budget:home' %}" class="{% if request.resolver_match.url_name == 'home' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-blue-600{% endif %} px-4 py-2 rounded-lg font-medium transition">Home</a>
         <a href="{% url 'budget:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-blue-600{% endif %} px-4 py-2 rounded-lg font-medium transition">Dashboard</a>
         <a href="{% url 'budget:reports' %}" class="{% if request.resolver_match.url_name == 'reports' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-blue-600{% endif %} px-4 py-2 rounded-lg font-medium transition">Reports</a>
+
+        <div class="ml-auto flex items-center gap-2">
+            {% if request.user.is_authenticated %}
+                <span class="text-sm text-gray-500 mr-2">Hi, {{ request.user.username }}</span>
+                {% if request.user.is_staff %}
+                <a href="{% url 'budget:admin_dashboard' %}" class="{% if request.resolver_match.url_name == 'admin_dashboard' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-gray-800{% endif %} px-3 py-2 rounded-lg font-medium transition">Admin</a>
+                {% endif %}
+                <a href="{% url 'budget:logout' %}" class="text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg font-medium transition">Logout</a>
+            {% else %}
+                <a href="{% url 'budget:login' %}" class="{% if request.resolver_match.url_name == 'login' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-blue-600{% endif %} px-4 py-2 rounded-lg font-medium transition">Login</a>
+                <a href="{% url 'budget:register' %}" class="{% if request.resolver_match.url_name == 'register' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-blue-600{% endif %} px-4 py-2 rounded-lg font-medium transition">Register</a>
+                <a href="{% url 'budget:admin_login' %}" class="{% if request.resolver_match.url_name == 'admin_login' %}text-gray-800 bg-gray-100{% else %}text-gray-500 hover:text-gray-800{% endif %} px-4 py-2 rounded-lg font-medium transition">Admin Login</a>
+            {% endif %}
+        </div>
     </nav>
 
     {% if messages %}

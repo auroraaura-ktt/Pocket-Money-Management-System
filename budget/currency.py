@@ -14,6 +14,12 @@ def to_mmk(value) -> Decimal:
 
 
 def format_mmk(value) -> str:
-    """Format as whole MMK, e.g. '80,000 MMK'."""
-    amount = int(to_mmk(value))
+    """Format as whole MMK, e.g. '80,000 MMK'.
+
+    The absolute value is always shown so no negative money amount is ever
+    displayed. Negative values are only produced for deficits or unexpected
+    income; they remain signed internally so all calculations stay correct,
+    and callers can colour the row based on the underlying sign.
+    """
+    amount = abs(int(to_mmk(value)))
     return f"{amount:,} MMK"
