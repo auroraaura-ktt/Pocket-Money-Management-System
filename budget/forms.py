@@ -5,6 +5,7 @@ from decimal import Decimal
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 
 from budget.periods import PERIOD_DEFINITIONS, period_index_for_day
@@ -102,6 +103,65 @@ class UserRegistrationForm(UserCreationForm):
         if not pocket.balances.exists():
             Balance.objects.create(user=pocket, name="Main Wallet")
         return user
+
+
+class AdminResetPasswordForm(forms.Form):
+    """Set a new password for a user's login account (admin action).
+
+    Only PocketUsers that actually have a linked ``auth_user`` account can be
+    reset, since there is nothing to reset for legacy rows without one.
+    """
+
+    user = forms.ModelChoiceField(
+        queryset=PocketUser.objects.none(),
+        label="User",
+        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+    )
+    password1 = forms.CharField(
+        label="New password",
+        widget=forms.PasswordInput(
+            attrs={"class": INPUT_CLASS, "autocomplete": "new-password"}
+        ),
+    )
+    password2 = forms.CharField(
+        label="Confirm new password",
+        widget=forms.PasswordInput(
+            attrs={"class": INPUT_CLASS, "autocomplete": "new-password"}
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["user"].queryset = (
+            PocketUser.objects.filter(auth_user__isnull=False)
+            .select_related("auth_user")
+            .order_by("name")
+        )
+        self.fields["password1"].help_text = (
+            "Your password must contain at least 8 characters and cannot be "
+            "entirely numeric or too common."
+        )
+        self.fields["password2"].help_text = ""
+        self.fields["password1"].label = "New password"
+        self.fields["password2"].label = "Confirm new password"
+
+    def clean_password1(self):
+        password1 = self.cleaned_data.get("password1")
+        user_obj = self.cleaned_data.get("user")
+        if user_obj is not None and user_obj.auth_user is not None:
+            try:
+                validate_password(password1, user=user_obj.auth_user)
+            except ValidationError as exc:
+                raise forms.ValidationError(exc.messages)
+        return password1
+
+    def clean(self):
+        cleaned = super().clean()
+        password1 = cleaned.get("password1")
+        password2 = cleaned.get("password2")
+        if password1 and password2 and password1 != password2:
+            self.add_error("password2", "The two password fields didn't match.")
+        return cleaned
 
 
 class BalanceForm(forms.ModelForm):

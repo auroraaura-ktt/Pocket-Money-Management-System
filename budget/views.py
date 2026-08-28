@@ -1,16 +1,18 @@
 """Views for Pocket Money Management System."""
 
 from django.contrib import messages
-from django.contrib.auth import login, logout
+from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.forms import AuthenticationForm
-from django.db.models import Sum
+from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
+from django.db.models import Count, Sum
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from budget.forms import (
+    AdminResetPasswordForm,
     BalanceForm,
     BudgetMonthForm,
     CategoryBudgetUpdateForm,
@@ -41,6 +43,30 @@ def _style_auth_form(form):
         field = form.fields.get(field_name)
         if field is not None:
             field.widget.attrs.update({"class": INPUT_CLASS})
+
+
+def _style_form_fields(form):
+    """Apply the project's Tailwind input styling to every field on a form."""
+    for field in form.fields.values():
+        field.widget.attrs.update({"class": INPUT_CLASS})
+
+
+def _clear_user_sessions(user):
+    """Log out every active session belonging to ``user``.
+
+    Used after an admin resets a user's password so any existing login
+    sessions are invalidated and the new password must be used again.
+    """
+    from django.contrib.sessions.models import Session
+
+    user_id = str(user.pk)
+    for session in Session.objects.filter(expire_date__gte=timezone.now()):
+        try:
+            data = session.get_decoded()
+        except Exception:
+            continue
+        if data.get("_auth_user_id") == user_id:
+            session.delete()
 
 
 def _current_pocket_user(request) -> PocketUser:
@@ -141,6 +167,113 @@ def logout_view(request):
     logout(request)
     messages.success(request, "You have been logged out.")
     return redirect("budget:home")
+
+
+@login_required
+def change_password_view(request):
+    """Let a logged-in user reset their own password."""
+    form = PasswordChangeForm(user=request.user)
+    if request.method == "POST":
+        form = PasswordChangeForm(user=request.user, data=request.POST)
+        if form.is_valid():
+            user = form.save()
+            # Keep the user logged in after their password hash changes.
+            update_session_auth_hash(request, user)
+            messages.success(request, "Your password has been changed.")
+            return redirect("budget:dashboard")
+
+    _style_form_fields(form)
+    return render(request, "budget/change_password.html", {"form": form})
+
+
+@login_required
+def admin_users(request):
+    """Custom staff page to manage users (delete, reset password, activate)."""
+    if not request.user.is_staff:
+        messages.error(request, "You do not have administrator access.")
+        return redirect("budget:dashboard")
+
+    users_qs = (
+        PocketUser.objects.select_related("auth_user")
+        .annotate(num_balances=Count("balances"), num_months=Count("months"))
+        .order_by("name")
+    )
+    reset_form = AdminResetPasswordForm()
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+
+        if action == "reset_password":
+            reset_form = AdminResetPasswordForm(request.POST)
+            if reset_form.is_valid():
+                pocket = reset_form.cleaned_data["user"]
+                auth_user = pocket.auth_user
+                new_password = reset_form.cleaned_data["password1"]
+                auth_user.set_password(new_password)
+                auth_user.save(update_fields=["password"])
+                _clear_user_sessions(auth_user)
+                messages.success(
+                    request,
+                    f"Password reset for {pocket.name} ({pocket.email}). "
+                    f"New password: {new_password}",
+                )
+                return redirect("budget:admin_users")
+
+        elif action == "toggle_active":
+            user_id = request.POST.get("user_id")
+            pocket = PocketUser.objects.select_related("auth_user").filter(
+                pk=user_id
+            ).first()
+            if not pocket:
+                messages.error(request, "User not found.")
+            elif pocket.auth_user_id == request.user.id:
+                messages.error(request, "You cannot change your own account status.")
+            elif pocket.auth_user is None:
+                messages.error(
+                    request, f"{pocket.name} has no linked login account."
+                )
+            else:
+                auth_user = pocket.auth_user
+                auth_user.is_active = not auth_user.is_active
+                auth_user.save(update_fields=["is_active"])
+                state = "activated" if auth_user.is_active else "deactivated"
+                messages.success(
+                    request, f"Account for {pocket.name} {state}."
+                )
+            return redirect("budget:admin_users")
+
+        elif action == "delete_user":
+            user_id = request.POST.get("user_id")
+            pocket = PocketUser.objects.select_related("auth_user").filter(
+                pk=user_id
+            ).first()
+            if not pocket:
+                messages.error(request, "User not found.")
+            elif pocket.auth_user_id == request.user.id:
+                messages.error(
+                    request, "You cannot delete your own account."
+                )
+            else:
+                name = pocket.name
+                email = pocket.email
+                auth_user = pocket.auth_user
+                pocket.delete()
+                if auth_user is not None:
+                    auth_user.delete()
+                messages.success(
+                    request,
+                    f"User '{name}' ({email}) and all their data were deleted.",
+                )
+            return redirect("budget:admin_users")
+
+    return render(
+        request,
+        "budget/admin_users.html",
+        {
+            "users": users_qs,
+            "reset_form": reset_form,
+        },
+    )
 
 
 @login_required

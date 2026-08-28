@@ -665,3 +665,182 @@ class CurrencyDisplayNeverNegativeTests(TestCase):
             total_money=Decimal("500000"),
         )
         create_default_period_categories(self.budget_month)
+
+
+class AdminUserManagementTests(TestCase):
+    def setUp(self):
+        self.staff_user = User.objects.create_user(
+            username="manager",
+            email="manager@example.com",
+            password="Passw0rd!x",
+            is_staff=True,
+        )
+        self.target_auth = User.objects.create_user(
+            username="bob", email="bob@example.com", password="OldPass123!"
+        )
+        self.target = PocketUser.objects.create(
+            name="Bob", email="bob@example.com", auth_user=self.target_auth
+        )
+        self.balance = Balance.objects.create(
+            user=self.target, name="Main Wallet"
+        )
+        self.budget_month = BudgetMonth.objects.create(
+            user=self.target,
+            balance=self.balance,
+            year=2026,
+            month=8,
+            total_money=Decimal("100000"),
+        )
+        self.client.force_login(self.staff_user)
+
+    def test_admin_users_denies_non_staff(self):
+        clerk = User.objects.create_user(
+            username="clerk", password="Passw0rd!x"
+        )
+        self.client.force_login(clerk)
+        response = self.client.get(reverse("budget:admin_users"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("budget:dashboard"))
+
+    def test_admin_users_redirects_anonymous_to_login(self):
+        self.client.logout()
+        response = self.client.get(reverse("budget:admin_users"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login/", response.url)
+
+    def test_admin_users_lists_users(self):
+        response = self.client.get(reverse("budget:admin_users"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Bob")
+        self.assertContains(response, "bob@example.com")
+
+    def test_admin_reset_password(self):
+        response = self.client.post(
+            reverse("budget:admin_users"),
+            {
+                "action": "reset_password",
+                "user": self.target.id,
+                "password1": "NewPassword123!",
+                "password2": "NewPassword123!",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.target_auth.refresh_from_db()
+        self.assertTrue(self.target_auth.check_password("NewPassword123!"))
+
+    def test_admin_reset_password_rejects_mismatch(self):
+        response = self.client.post(
+            reverse("budget:admin_users"),
+            {
+                "action": "reset_password",
+                "user": self.target.id,
+                "password1": "NewPassword123!",
+                "password2": "Different123!",
+            },
+        )
+        # Form errors return to the page and the password stays unchanged.
+        self.target_auth.refresh_from_db()
+        self.assertTrue(self.target_auth.check_password("OldPass123!"))
+
+    def test_admin_cannot_delete_own_account(self):
+        own = PocketUser.objects.create(
+            name="Manager",
+            email="manager@example.com",
+            auth_user=self.staff_user,
+        )
+        response = self.client.post(
+            reverse("budget:admin_users"),
+            {"action": "delete_user", "user_id": own.id},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(User.objects.filter(pk=self.staff_user.pk).exists())
+        self.assertTrue(PocketUser.objects.filter(pk=own.pk).exists())
+
+    def test_admin_delete_user_removes_pocket_and_auth(self):
+        response = self.client.post(
+            reverse("budget:admin_users"),
+            {"action": "delete_user", "user_id": self.target.id},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(PocketUser.objects.filter(pk=self.target.pk).exists())
+        self.assertFalse(User.objects.filter(pk=self.target_auth.pk).exists())
+        self.assertFalse(
+            BudgetMonth.objects.filter(pk=self.budget_month.pk).exists()
+        )
+
+    def test_admin_toggle_active(self):
+        response = self.client.post(
+            reverse("budget:admin_users"),
+            {"action": "toggle_active", "user_id": self.target.id},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.target_auth.refresh_from_db()
+        self.assertFalse(self.target_auth.is_active)
+
+    def test_admin_cannot_toggle_own_account(self):
+        own = PocketUser.objects.create(
+            name="Manager",
+            email="manager@example.com",
+            auth_user=self.staff_user,
+        )
+        self.client.post(
+            reverse("budget:admin_users"),
+            {"action": "toggle_active", "user_id": own.id},
+        )
+        self.staff_user.refresh_from_db()
+        self.assertTrue(self.staff_user.is_active)
+
+
+class ChangePasswordTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="sally", email="sally@example.com", password="OldPass123!"
+        )
+        PocketUser.objects.create(
+            name="Sally", email="sally@example.com", auth_user=self.user
+        )
+        self.client.force_login(self.user)
+
+    def test_change_password_requires_login(self):
+        self.client.logout()
+        response = self.client.get(reverse("budget:change_password"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login/", response.url)
+
+    def test_change_password_updates_credentials(self):
+        response = self.client.post(
+            reverse("budget:change_password"),
+            {
+                "old_password": "OldPass123!",
+                "new_password1": "BrandNewPass1!",
+                "new_password2": "BrandNewPass1!",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("BrandNewPass1!"))
+
+    def test_change_password_rejects_wrong_current(self):
+        response = self.client.post(
+            reverse("budget:change_password"),
+            {
+                "old_password": "TotallyWrong!",
+                "new_password1": "BrandNewPass1!",
+                "new_password2": "BrandNewPass1!",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("OldPass123!"))
+
+    def test_change_password_keeps_user_logged_in(self):
+        self.client.post(
+            reverse("budget:change_password"),
+            {
+                "old_password": "OldPass123!",
+                "new_password1": "BrandNewPass1!",
+                "new_password2": "BrandNewPass1!",
+            },
+        )
+        response = self.client.get(reverse("budget:dashboard"))
+        self.assertEqual(response.status_code, 200)
