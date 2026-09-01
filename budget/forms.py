@@ -287,9 +287,23 @@ class CustomCategoryBudgetForm(forms.Form):
         queryset=BudgetCategory.objects.none(),
         empty_label="Select custom category...",
         widget=forms.Select(attrs={"class": INPUT_CLASS}),
+        required=False,
+    )
+    new_category_name = forms.CharField(
+        label="Or Write a New Category Name",
+        required=False,
+        max_length=100,
+        widget=forms.TextInput(
+            attrs={
+                "class": INPUT_CLASS,
+                "placeholder": "e.g. Transport, Books...",
+            }
+        ),
     )
     estimated_amount = forms.DecimalField(
         label="Budget Amount (MMK)",
+        required=False,
+        initial=0,
         min_value=0,
         max_digits=12,
         decimal_places=0,
@@ -322,19 +336,58 @@ class CustomCategoryBudgetForm(forms.Form):
                 qs = qs.filter(pk__in=category_qs.values_list("pk", flat=True))
             self.fields["category"].queryset = qs
 
+    def clean(self):
+        cleaned = super().clean()
+        category = cleaned.get("category")
+        new_category_name = (cleaned.get("new_category_name") or "").strip()
+        budget_month = cleaned.get("budget_month")
+
+        # A category must come from the dropdown OR be written manually.
+        if category is None and not new_category_name:
+            self.add_error(
+                "category",
+                "Select an existing custom category or write a new category name.",
+            )
+            return cleaned
+
+        # If a name was typed manually, make sure it does not already exist
+        # in the selected budget month (unique per month).
+        if new_category_name and budget_month:
+            existing = BudgetCategory.objects.filter(
+                budget_month=budget_month, name=new_category_name
+            ).first()
+            if existing is not None:
+                # Reuse the existing category instead of erroring out.
+                cleaned["category"] = existing
+            else:
+                cleaned["new_category_name"] = new_category_name
+
+        return cleaned
+
     def save(self):
-        category = self.cleaned_data["category"]
+        category = self.cleaned_data.get("category")
+        new_category_name = self.cleaned_data.get("new_category_name")
+        budget_month = self.cleaned_data["budget_month"]
+
+        # Create the category manually written by the user if needed.
+        if category is None and new_category_name:
+            category, _ = BudgetCategory.objects.get_or_create(
+                budget_month=budget_month,
+                name=new_category_name,
+                defaults={
+                    "estimated_amount": Decimal("0"),
+                    "period_index": None,
+                },
+            )
+
         category.estimated_amount = to_decimal(
             self.cleaned_data.get("estimated_amount", 0)
         )
         category.save(update_fields=["estimated_amount"])
 
-        month = category.budget_month
-        month.total_money = sum(
-            (item.estimated_amount for item in month.categories.all()),
-            Decimal("0"),
-        )
-        month.save(update_fields=["total_money"])
+        # Update only the category's estimated amount. The budget month's
+        # total_money (main amount) must NOT be recalculated here — it is the
+        # amount the user set when creating the budget month.
         return category
 
 
@@ -387,12 +440,9 @@ class CategoryBudgetUpdateForm(forms.Form):
         )
         category.save(update_fields=["estimated_amount"])
 
-        month = category.budget_month
-        month.total_money = sum(
-            (item.estimated_amount for item in month.categories.all()),
-            Decimal("0"),
-        )
-        month.save(update_fields=["total_money"])
+        # Update only the category's estimated amount. The budget month's
+        # total_money (main amount) must NOT be recalculated here — it is the
+        # amount the user set when creating the budget month.
         return category
 
 
@@ -417,6 +467,8 @@ class PeriodBudgetForm(forms.Form):
         for period in PERIOD_DEFINITIONS:
             self.fields[f"period_{period.index}"] = forms.DecimalField(
                 label=period.name,
+                required=False,
+                initial=0,
                 min_value=0,
                 max_digits=12,
                 decimal_places=0,
@@ -463,15 +515,12 @@ class PeriodBudgetForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
 
-        # Validate custom category slots: name without amount (or vice versa).
+        # Validate custom category slots: amount without a name is an error.
+        # (Names with empty amounts are allowed — estimated amounts are
+        # optional; empty values are treated as 0.)
         for i in range(1, CUSTOM_CATEGORY_SLOTS + 1):
             name = cleaned.get(f"custom_name_{i}")
             amount = cleaned.get(f"custom_amount_{i}")
-            if name and not amount:
-                self.add_error(
-                    f"custom_amount_{i}",
-                    "Enter an amount for this category.",
-                )
             if amount and not name:
                 self.add_error(
                     f"custom_name_{i}",
@@ -479,17 +528,12 @@ class PeriodBudgetForm(forms.Form):
                 )
 
         # Compute total money as the sum of all category amounts.
+        # All amounts are optional; empty/default categories simply count as 0.
         total = Decimal("0")
         for period in PERIOD_DEFINITIONS:
             total += to_decimal(cleaned.get(f"period_{period.index}", 0))
         for i in range(1, CUSTOM_CATEGORY_SLOTS + 1):
             total += to_decimal(cleaned.get(f"custom_amount_{i}", 0))
-
-        if total <= 0:
-            raise ValidationError(
-                "Total budget must be greater than zero. "
-                "Enter amounts for at least one category."
-            )
 
         cleaned["total_money"] = total
         return cleaned
@@ -524,10 +568,6 @@ class PeriodBudgetForm(forms.Form):
                         "period_index": None,
                     },
                 )
-
-        # Update the budget month's total money to the sum of all categories.
-        budget_month.total_money = cleaned["total_money"]
-        budget_month.save(update_fields=["total_money"])
 
         return budget_month
 

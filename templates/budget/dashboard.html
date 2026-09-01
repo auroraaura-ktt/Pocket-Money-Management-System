@@ -236,6 +236,13 @@
                     <select name="category" id="custom-budget-category" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="">Select custom category...</option>
                     </select>
+                    {% if custom_budget_form.category.errors %}<p class="text-red-600 text-sm mt-1">{{ custom_budget_form.category.errors.0 }}</p>{% endif %}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Or Write a New Category Name</label>
+                    {{ custom_budget_form.new_category_name }}
+                    {% if custom_budget_form.new_category_name.errors %}<p class="text-red-600 text-sm mt-1">{{ custom_budget_form.new_category_name.errors.0 }}</p>{% endif %}
+                    <p class="text-xs text-gray-400 mt-1">Leave this empty if you selected a category above.</p>
                 </div>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Budget Amount (MMK)</label>

@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.core import mail
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -579,7 +580,10 @@ class ZeroSpendAdjustmentTests(TestCase):
     EMAIL_HOST_USER="test@example.com",
     EMAIL_HOST_PASSWORD="test-password",
 )
-class AutomatedEmailZeroSpendGatingTests(TestCase):
+class AutomatedEmailScheduleTests(TestCase):
+    """Final full monthly report on the last day; per-category emails on
+    actual spending."""
+
     def setUp(self):
         self.user = PocketUser.objects.create(name="Test User", email="test@example.com")
         self.budget_month = BudgetMonth.objects.create(
@@ -590,9 +594,16 @@ class AutomatedEmailZeroSpendGatingTests(TestCase):
         )
         create_default_period_categories(self.budget_month)
 
-    def test_email_sent_when_zero_spend_adjustment_exists(self):
-        # No expenses at all -> all three periods are zero-spend.
-        results = process_automated_emails(today=date(2026, 8, 21))
+    def test_no_emails_on_regular_day(self):
+        results = process_automated_emails(today=date(2026, 8, 5))
+
+        self.assertEqual(results["sent"], [])
+        self.assertEqual(
+            mail.outbox, [], "No emails should be sent on a regular day."
+        )
+
+    def test_final_report_sent_when_month_expires(self):
+        results = process_automated_emails(today=date(2026, 8, 31))
 
         self.assertIn("August 2026 — monthly full", results["sent"])
         self.assertTrue(
@@ -601,28 +612,103 @@ class AutomatedEmailZeroSpendGatingTests(TestCase):
                 report_type=ReportEmailLog.MONTHLY_FULL,
             ).exists()
         )
+        self.assertEqual(len(mail.outbox), 1)
 
-    def test_email_skipped_when_no_zero_spend(self):
-        # Spend in every period so no zero-spend adjustment triggers.
-        for period_index, amount in [(1, 10000), (2, 10000), (3, 10000)]:
-            category = self.budget_month.categories.get(period_index=period_index)
-            DailyExpense.objects.create(
-                budget_month=self.budget_month,
-                category=category,
-                expense_date=date(2026, 8, period_index * 10),
-                amount=Decimal(str(amount)),
-                note=category.name,
-            )
+    def test_no_duplicate_emails_on_second_run_same_day(self):
+        process_automated_emails(today=date(2026, 8, 31))
+        first_count = len(mail.outbox)
 
-        results = process_automated_emails(today=date(2026, 8, 21))
+        results = process_automated_emails(today=date(2026, 8, 31))
 
         self.assertEqual(results["sent"], [])
-        self.assertFalse(
+        self.assertEqual(len(mail.outbox), first_count)
+
+    def test_force_sends_monthly_report_any_day(self):
+        results = process_automated_emails(today=date(2026, 8, 5), force=True)
+
+        self.assertIn("August 2026 — monthly full", results["sent"])
+
+    def test_no_category_email_when_category_has_no_spending(self):
+        from budget.services.automated_email_service import send_category_report_email
+
+        category_1 = self.budget_month.categories.get(period_index=1)
+
+        sent = send_category_report_email(category_1)
+
+        self.assertFalse(sent)
+        self.assertEqual(mail.outbox, [])
+
+    def test_category_email_sent_when_spending_recorded(self):
+        from budget.services.automated_email_service import (
+            category_report_type,
+            send_category_report_email,
+        )
+
+        category_1 = self.budget_month.categories.get(period_index=1)
+        DailyExpense.objects.create(
+            budget_month=self.budget_month,
+            category=category_1,
+            expense_date=date(2026, 8, 5),
+            amount=Decimal("50000"),
+            note="Lunch",
+        )
+
+        sent = send_category_report_email(category_1)
+
+        self.assertTrue(sent)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(category_1.name, mail.outbox[0].subject)
+        self.assertTrue(
             ReportEmailLog.objects.filter(
                 budget_month=self.budget_month,
-                report_type=ReportEmailLog.MONTHLY_FULL,
+                report_type=category_report_type(category_1.id),
             ).exists()
         )
+
+    def test_category_email_sent_only_once_per_month(self):
+        from budget.services.automated_email_service import send_category_report_email
+
+        category_1 = self.budget_month.categories.get(period_index=1)
+        DailyExpense.objects.create(
+            budget_month=self.budget_month,
+            category=category_1,
+            expense_date=date(2026, 8, 5),
+            amount=Decimal("50000"),
+            note="Lunch",
+        )
+        send_category_report_email(category_1)
+        first_count = len(mail.outbox)
+
+        # More spending in the same category/month: no second email.
+        DailyExpense.objects.create(
+            budget_month=self.budget_month,
+            category=category_1,
+            expense_date=date(2026, 8, 6),
+            amount=Decimal("20000"),
+            note="Dinner",
+        )
+        sent = send_category_report_email(category_1)
+
+        self.assertFalse(sent)
+        self.assertEqual(len(mail.outbox), first_count)
+
+    def test_other_categories_without_spending_get_no_email(self):
+        from budget.services.automated_email_service import send_category_report_email
+
+        category_1 = self.budget_month.categories.get(period_index=1)
+        category_2 = self.budget_month.categories.get(period_index=2)
+        DailyExpense.objects.create(
+            budget_month=self.budget_month,
+            category=category_1,
+            expense_date=date(2026, 8, 5),
+            amount=Decimal("50000"),
+            note="Lunch",
+        )
+
+        self.assertTrue(send_category_report_email(category_1))
+        # Category 2 has no spending -> no email.
+        self.assertFalse(send_category_report_email(category_2))
+        self.assertEqual(len(mail.outbox), 1)
 
 
 class CurrencyDisplayNeverNegativeTests(TestCase):

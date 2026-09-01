@@ -120,12 +120,14 @@ class ReportEmailLog(models.Model):
     PERIOD_2 = "period_2"
     PERIOD_3 = "period_3"
     MONTHLY_FULL = "monthly_full"
+    CATEGORY = "category"
 
     REPORT_TYPE_CHOICES = [
         (PERIOD_1, "Days 1-10"),
         (PERIOD_2, "Days 11-20"),
         (PERIOD_3, "Days 21-end"),
         (MONTHLY_FULL, "Monthly Full Report"),
+        (CATEGORY, "Category Report"),
     ]
 
     budget_month = models.ForeignKey(

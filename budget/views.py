@@ -1,5 +1,7 @@
 """Views for Pocket Money Management System."""
 
+import logging
+
 from django.contrib import messages
 from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
@@ -32,9 +34,12 @@ from budget.models import (
     PocketUser,
     ReportEmailLog,
 )
+from budget.services.automated_email_service import send_category_report_email
 from budget.services.category_service import create_default_period_categories
 from budget.services.email_service import send_monthly_report_email
 from budget.services.report_service import generate_monthly_report
+
+logger = logging.getLogger(__name__)
 
 
 def _style_auth_form(form):
@@ -461,7 +466,7 @@ def dashboard(request):
                 messages.success(
                     request,
                     f"Budget estimates saved for {budget_month.month_label}. "
-                    f"Total money updated to {budget_month.total_money} MMK.",
+                    f"The main amount was not changed.",
                 )
                 return _dashboard_redirect("budget")
 
@@ -508,6 +513,15 @@ def dashboard(request):
             )
             if expense_form.is_valid():
                 expense = expense_form.save()
+                # Auto-send the category report email once the user has
+                # recorded actual spending for this category.
+                try:
+                    send_category_report_email(expense.category)
+                except Exception:
+                    logger.exception(
+                        "Failed to send category email for %s",
+                        expense.category.name,
+                    )
                 messages.success(
                     request,
                     f"Expense recorded under {expense.category.name}.",
@@ -540,6 +554,15 @@ def dashboard(request):
             )
             if expense_form.is_valid():
                 updated_expense = expense_form.save()
+                # Auto-send the category report email once the user has
+                # recorded actual spending for this category.
+                try:
+                    send_category_report_email(updated_expense.category)
+                except Exception:
+                    logger.exception(
+                        "Failed to send category email for %s",
+                        updated_expense.category.name,
+                    )
                 messages.success(
                     request,
                     f"Expense updated for {updated_expense.category.name}: "
