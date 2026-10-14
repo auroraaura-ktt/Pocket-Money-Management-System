@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 CACHE_KEY = "pmms_auto_emails_last_run"
 CACHE_TTL = 60 * 60 * 12  # 12 hours; also reset naturally at midnight
 
+# Separate cache key for the two monthly report schedules (1st / 16th).
+MONTHLY_CACHE_KEY = "pmms_monthly_schedules_last_run"
+
 
 class AutoEmailMiddleware:
     """Run the scheduled email job at most once per day per process."""
@@ -32,6 +35,7 @@ class AutoEmailMiddleware:
 
     def __call__(self, request):
         self._maybe_run_automated_emails()
+        self._maybe_run_monthly_schedules()
         return self.get_response(request)
 
     def _maybe_run_automated_emails(self) -> None:
@@ -51,5 +55,32 @@ class AutoEmailMiddleware:
         except Exception:
             # Never break the request because of the email scheduler.
             logger.exception("Automated email scheduler failed")
+
+        cache.set(cache_key, True, CACHE_TTL)
+
+
+    def _maybe_run_monthly_schedules(self) -> None:
+        """Run the two monthly report schedules (1st / 16th) once per day.
+
+        Fully isolated from ``_maybe_run_automated_emails``: its own cache key,
+        its own try/except, and delivery deduplication handled inside
+        ``process_monthly_schedules`` via ``ReportEmailLog``.
+        """
+        today = timezone.localdate()
+        cache_key = f"{MONTHLY_CACHE_KEY}:{today.isoformat()}"
+        if cache.get(cache_key):
+            return
+
+        try:
+            from budget.services.monthly_schedule_service import (
+                process_monthly_schedules,
+            )
+
+            results = process_monthly_schedules(today=today)
+            if results["sent"]:
+                logger.info("Monthly schedule emails sent: %s", results["sent"])
+        except Exception:
+            # Never break the request because of the monthly scheduler.
+            logger.exception("Monthly schedule email scheduler failed")
 
         cache.set(cache_key, True, CACHE_TTL)
