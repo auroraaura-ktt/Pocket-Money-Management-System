@@ -28,15 +28,26 @@ class CategoryComparison:
 class MonthlyReport:
     year: int
     month: int
+    main_balance_name: str
     total_money: Decimal
     adjusted_total_money: Decimal
     total_budget_estimated: Decimal
-    total_actual_spent: Decimal
+    direct_actual_spent: Decimal
+    sub_balance_total_actual_spent: Decimal
+    combined_actual_spent: Decimal
+    main_transaction_count: int
+    main_transactions: list[dict]
     remaining_balance: Decimal
     overall_difference: Decimal
     overall_status: str
     period_reports: list[CategoryComparison]
     zero_spend_periods: list[str]
+    sub_balance_rows: list[dict]
+
+    @property
+    def total_actual_spent(self) -> Decimal:
+        """Compatibility alias for the explicitly named combined total."""
+        return self.combined_actual_spent
 
 
 def _build_comparison(
@@ -70,6 +81,8 @@ def _get_total_actual_spent(
     category_id: int | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
+    main_only: bool = False,
+    sub_balance_id: int | None = None,
 ) -> Decimal:
     """Direct sum of daily expense amounts in the date range (optionally by category).
 
@@ -82,6 +95,10 @@ def _get_total_actual_spent(
     qs = DailyExpense.objects.filter(budget_month_id=budget_month_id)
     if category_id:
         qs = qs.filter(category_id=category_id)
+    if main_only:
+        qs = qs.filter(sub_balance__isnull=True)
+    elif sub_balance_id is not None:
+        qs = qs.filter(sub_balance_id=sub_balance_id)
     if start_date:
         qs = qs.filter(expense_date__gte=start_date)
     if end_date:
@@ -102,14 +119,73 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
         raise ValueError(f"Budget month {budget_month_id} not found")
 
     categories = list(budget_month.categories.all())
+    main_expenses = list(
+        DailyExpense.objects.filter(
+            budget_month=budget_month,
+            sub_balance__isnull=True,
+        )
+        .select_related("category")
+        .order_by("expense_date", "id")
+    )
+    direct_actual_spent = _get_total_actual_spent(
+        budget_month.id,
+        main_only=True,
+    )
+    sub_balance_rows = [
+        {
+            "id": row.id,
+            "name": row.name,
+            "balance_amount": to_mmk(row.balance_amount),
+            "estimated_amount": (
+                to_mmk(row.estimated_amount)
+                if row.estimated_amount is not None else None
+            ),
+            "total_actual_spent": to_mmk(row.total_actual_spent),
+            "remaining_balance": to_mmk(row.remaining_balance) if row.remaining_balance is not None else None,
+            "transaction_count": row.expenses.filter(
+                budget_month=budget_month
+            ).count(),
+            "categories": [
+                {
+                    "name": category.name,
+                    "budget_amount": to_mmk(category.estimated_amount),
+                    "actual_amount": to_mmk(
+                        category.expenses.filter(
+                            sub_balance=row, budget_month=budget_month
+                        ).aggregate(
+                            total=Sum(Abs(F("amount")))
+                        )["total"]
+                    ),
+                    "transaction_count": category.expenses.filter(
+                        sub_balance=row, budget_month=budget_month
+                    ).count(),
+                }
+                for category in row.categories.all()
+            ],
+            "transactions": [
+                {
+                    "date": expense.expense_date,
+                    "category_name": expense.category.name,
+                    "note": expense.note,
+                    "amount": expense.amount,
+                }
+                for expense in row.expenses.filter(
+                    budget_month=budget_month
+                ).select_related("category")
+            ],
+        }
+        for row in budget_month.sub_balances.prefetch_related(
+            "categories__expenses", "expenses__category"
+        ).all()
+    ]
+    main_categories = [cat for cat in categories if cat.sub_balance_id is None]
     categories_by_period = {
-        cat.period_index: cat for cat in categories if cat.period_index is not None
+        cat.period_index: cat for cat in main_categories if cat.period_index is not None
     }
-    custom_categories = [cat for cat in categories if cat.period_index is None]
+    custom_categories = [cat for cat in main_categories if cat.period_index is None]
 
     period_reports: list[CategoryComparison] = []
     total_budget_estimated = Decimal("0")
-    total_actual_spent = Decimal("0")
     zero_spend_periods: list[str] = []
 
     # Period categories (Days 1-10, 11-20, 21-end)
@@ -119,11 +195,16 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
         start_date, end_date = period_date_range(
             budget_month.year, budget_month.month, period.index
         )
-        actual_amount = _get_total_actual_spent(
-            budget_month.id,
-            category_id=category.id if category else None,
-            start_date=start_date,
-            end_date=end_date,
+        actual_amount = (
+            _get_total_actual_spent(
+                budget_month.id,
+                category_id=category.id,
+                start_date=start_date,
+                end_date=end_date,
+                main_only=True,
+            )
+            if category
+            else Decimal("0")
         )
         end_day = period_end_day(budget_month.year, budget_month.month, period.index)
 
@@ -137,7 +218,6 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
         comparison.category_id = category.id if category else None
         period_reports.append(comparison)
         total_budget_estimated += budget_amount
-        total_actual_spent += actual_amount
 
         # If no money was spent in this period, its budget is added back to available money
         if actual_amount == 0:
@@ -147,7 +227,7 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
     for category in custom_categories:
         budget_amount = to_mmk(category.estimated_amount)
         actual_amount = _get_total_actual_spent(
-            budget_month.id, category_id=category.id
+            budget_month.id, category_id=category.id, main_only=True
         )
         comparison = _build_comparison(
             category.name,
@@ -159,10 +239,16 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
         comparison.category_id = category.id
         period_reports.append(comparison)
         total_budget_estimated += budget_amount
-        total_actual_spent += actual_amount
+
+    total_sub_balance_actual_spent = sum(
+        (row["total_actual_spent"] for row in sub_balance_rows),
+        Decimal("0"),
+    )
+    combined_actual_spent = to_mmk(
+        direct_actual_spent + total_sub_balance_actual_spent
+    )
 
     total_budget_estimated = to_mmk(total_budget_estimated)
-    total_actual_spent = to_mmk(total_actual_spent)
     total_money = to_mmk(budget_month.total_money)
 
     # For each period with zero spending, subtract its budget from available money
@@ -175,21 +261,37 @@ def generate_monthly_report(budget_month_id: int) -> MonthlyReport:
                 zero_spend_budget += to_mmk(category.estimated_amount)
 
     adjusted_total_money = to_mmk(total_money - zero_spend_budget)
-    overall_diff = adjusted_total_money - total_actual_spent
+    overall_diff = adjusted_total_money - direct_actual_spent
 
-    # Remaining balance = Available Money − Actually Spent Money
-    remaining_balance = to_mmk(total_money - total_actual_spent)
+    # Main Balance remaining funds continue to exclude separately allocated Sub-Balances.
+    remaining_balance = to_mmk(total_money - direct_actual_spent)
+
+    main_transactions = [
+        {
+            "date": expense.expense_date,
+            "category_name": expense.category.name,
+            "note": expense.note,
+            "amount": expense.amount,
+        }
+        for expense in main_expenses
+    ]
 
     return MonthlyReport(
         year=budget_month.year,
         month=budget_month.month,
+        main_balance_name=budget_month.name or budget_month.month_label,
         total_money=total_money,
         adjusted_total_money=adjusted_total_money,
         total_budget_estimated=total_budget_estimated,
-        total_actual_spent=total_actual_spent,
+        direct_actual_spent=direct_actual_spent,
+        sub_balance_total_actual_spent=total_sub_balance_actual_spent,
+        combined_actual_spent=combined_actual_spent,
+        main_transaction_count=len(main_transactions),
+        main_transactions=main_transactions,
         remaining_balance=remaining_balance,
         overall_difference=abs(overall_diff),
         overall_status="surplus" if overall_diff >= 0 else "deficit",
         period_reports=period_reports,
         zero_spend_periods=zero_spend_periods,
+        sub_balance_rows=sub_balance_rows,
     )

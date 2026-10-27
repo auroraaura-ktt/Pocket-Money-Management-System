@@ -1,42 +1,45 @@
 {% extends "budget/base.html" %}
+{% load static %}
 
-{% block title %}Home - Pocket Money{% endblock %}
+{% block title %}PMMS by K&apos;s | Pocket Money Management System{% endblock %}
 
 {% block content %}
-<div class="text-center py-20 px-4">
-    <h1 class="text-5xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Pocket Money Management System</h1>
-    <p class="text-lg text-gray-500 max-w-2xl mx-auto mb-8">Track your budget estimates against actual daily spending. Get deficit and surplus reports for each category and at month end — delivered to your email.</p>
-    <a href="{% url 'budget:dashboard' %}" class="inline-block bg-blue-600 hover:bg-blue-700 text-white text-lg font-semibold px-10 py-4 rounded-xl transition">Get Started</a>
-</div>
-
-<div class="max-w-6xl mx-auto px-8 pb-16">
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-        <div class="text-center p-8">
-            <div class="text-4xl mb-4">📊</div>
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">Budget Planning</h3>
-            <p class="text-gray-500">Set your total money and budget estimates for each category of the month.</p>
+<div class="pmms-home">
+    <div class="pmms-home-shell">
+        <aside class="pmms-home-sidebar" aria-label="Page sections">
+            <a class="active" href="#home"><span>&#8962;</span>Home</a>
+            <a href="#budget"><span>&#9635;</span>Budget Planning</a>
+            <a href="#tracking"><span>&#9745;</span>Daily Tracking</a>
+            <a href="#reports"><span>&#9639;</span>Smart Reports</a>
+            <div class="home-side-rule" aria-hidden="true"></div>
+            <div class="home-side-quote"><span>&#127793;</span>Better<br>habits today,<br>Bigger dreams<br>tomorrow!<br>&#9825;</div>
+            <div class="home-side-bottom">&#9829; &nbsp; PMMS by K&apos;s<br><small>Pocket Money Management System</small></div>
+            <div class="home-side-waves" aria-hidden="true"></div>
+        </aside>
+        <div class="pmms-home-main">
+            <section class="home-hero" id="home">
+                <div class="home-hero-copy">
+                    <div class="home-pill">&#10022; &nbsp; Smarter Spending &nbsp;&middot;&nbsp; Brighter Future</div>
+                    <h1>PMMS <em>by K&apos;s</em></h1>
+                    <div class="home-subtitle">Pocket Money Management System</div>
+                    <p>Track your budget, manage your daily expenses, and get insightful reports &mdash; all in one place. Take control of your pocket money and build better financial habits!</p>
+                    <a class="home-primary" href="{% url 'budget:dashboard' %}">Get Started &nbsp; &rarr;</a>
+                </div>
+                <div class="home-hero-art"><img src="{% static 'images/hero-wallet.jpg' %}" alt="Wallet, savings, budget dashboard and savings checklist"></div>
+            </section>
+            <section class="home-features" aria-label="Features">
+                <article class="home-feature" id="budget"><div class="home-feature-icon">&#128091;</div><h2>Budget Planning</h2><p>Set your total money and budget estimates for each category of the month.</p><a href="{% url 'budget:dashboard' %}?tab=setup">Start Planning &nbsp; &rarr;</a><img src="{% static 'images/feature-budget.jpg' %}" alt="" aria-hidden="true"></article>
+                <article class="home-feature green" id="tracking"><div class="home-feature-icon">&#128467;&#65039;</div><h2>Daily Tracking</h2><p>Log money used each day, expenses are grouped into categories automatically.</p><a href="{% url 'budget:dashboard' %}?tab=expenses">Track Now &nbsp; &rarr;</a><img src="{% static 'images/feature-tracking.jpg' %}" alt="" aria-hidden="true"></article>
+                <article class="home-feature purple" id="reports"><div class="home-feature-icon">&#9639;</div><h2>Smart Reports</h2><p>Automatic deficit/surplus analysis for each category and monthly summary emailed to you.</p><a href="{% url 'budget:reports' %}">View Reports &nbsp; &rarr;</a><img src="{% static 'images/feature-reports.jpg' %}" alt="" aria-hidden="true"></article>
+            </section>
+            <section class="home-steps" id="steps">
+                <div class="steps-intro"><h2>&#10022; How It Works</h2><p>Just a few simple steps to manage your money effectively.</p><div class="script">Easy &middot; Simple &middot; Smart</div></div>
+                <article><div class="home-step-top"><span class="home-step-number">1</span><span class="home-step-icon">&#9817;</span></div><h3>Create Account</h3><p>Sign up and set up your profile in minutes.</p><a href="{% url 'budget:register' %}" aria-label="Register">Create account</a></article>
+                <article><div class="home-step-top"><span class="home-step-number">2</span><span class="home-step-icon">&#128091;</span></div><h3>Set Your Budget</h3><p>Add your monthly Main Balance and category estimates.</p><a href="{% url 'budget:dashboard' %}?tab=setup" aria-label="Set budget">Set a budget</a></article>
+                <article><div class="home-step-top"><span class="home-step-number">3</span><span class="home-step-icon">&#9639;</span></div><h3>Track Expenses</h3><p>Record your daily spending and categorize it.</p><a href="{% url 'budget:dashboard' %}?tab=expenses" aria-label="Track expenses">Track spending</a></article>
+                <article><div class="home-step-top"><span class="home-step-number">4</span><span class="home-step-icon">&#128200;</span></div><h3>View Reports</h3><p>Get insights and make smarter decisions.</p><a href="{% url 'budget:reports' %}" aria-label="View reports">View reports</a></article>
+            </section>
         </div>
-        <div class="text-center p-8">
-            <div class="text-4xl mb-4">📝</div>
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">Daily Tracking</h3>
-            <p class="text-gray-500">Log money used each day; expenses are grouped into categories automatically.</p>
-        </div>
-        <div class="text-center p-8">
-            <div class="text-4xl mb-4">📧</div>
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">Smart Reports</h3>
-            <p class="text-gray-500">Automatic deficit/surplus analysis for each category and monthly summary emailed to you.</p>
-        </div>
-    </div>
-
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-        <h3 class="text-xl font-semibold text-gray-900 mb-4">How It Works</h3>
-        <ol class="list-decimal pl-6 space-y-2 text-gray-700">
-            <li><strong>Add Total Money</strong> — Enter the total amount of money available for the month.</li>
-            <li><strong>Set Category Budgets</strong> — Enter estimated amounts for each category (e.g. Days 1-10, Days 11-20, Days 21-end, or custom categories like Shopping).</li>
-            <li><strong>Track Daily Expenses</strong> — Record spending each day; it is grouped into the matching category automatically.</li>
-            <li><strong>Review Reports</strong> — Compare each category's budget estimate against actual spending (deficit/surplus).</li>
-            <li><strong>Monthly Summary</strong> — Compare total actual spending against your total money and receive an email report.</li>
-        </ol>
     </div>
 </div>
 {% endblock %}

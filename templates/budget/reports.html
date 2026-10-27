@@ -6,7 +6,7 @@
 {% block content %}
 <div class="max-w-7xl mx-auto p-4 md:p-8">
     <h1 class="text-3xl font-bold text-gray-900 mb-2">Reports</h1>
-    <p class="text-gray-500 mb-8">Compare category budget estimates vs actual spending.</p>
+    <p class="text-gray-500 mb-8">Compare Main Balance direct category budgets with actual spending, separately from Sub-Balances.</p>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
         <form method="get" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
@@ -23,19 +23,24 @@
     </div>
 
     {% if report %}
-    <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <p class="text-sm text-gray-500 mb-1">Total Money (Available)</p>
             <p class="text-2xl font-bold text-gray-900">{{ report.total_money|mmk }}</p>
         </div>
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <p class="text-sm text-gray-500 mb-1">Actually Spent</p>
-            <p class="text-2xl font-bold text-gray-900">{{ report.total_actual_spent|mmk }}</p>
+            <p class="text-sm text-gray-500 mb-1">Main Balance — Direct Actual Spending</p>
+            <p class="text-2xl font-bold text-gray-900">{{ report.direct_actual_spent|mmk }}</p>
+            <p class="text-xs text-gray-500 mt-1">{{ report.main_transaction_count }} transactions</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Combined Actual Spending</p>
+            <p class="text-2xl font-bold text-gray-900">{{ report.combined_actual_spent|mmk }}</p>
         </div>
         <div class="bg-white rounded-xl shadow-sm border p-5 {% if report.remaining_balance >= 0 %}border-blue-200 bg-blue-50{% else %}border-red-200 bg-red-50{% endif %}">
             <p class="text-sm text-gray-500 mb-1">Remaining Balance</p>
             <p class="text-2xl font-bold {% if report.remaining_balance >= 0 %}text-blue-600{% else %}text-red-600{% endif %}">{{ report.remaining_balance|mmk }}</p>
-            <p class="text-xs text-gray-500 mt-1">Available − Spent</p>
+            <p class="text-xs text-gray-500 mt-1">Available − direct Main Balance spending</p>
         </div>
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <p class="text-sm text-gray-500 mb-1">Adjusted Available Money</p>
@@ -47,9 +52,31 @@
         <div class="bg-white rounded-xl shadow-sm border p-5 {% if report.overall_status == 'surplus' %}border-green-200 bg-green-50{% else %}border-red-200 bg-red-50{% endif %}">
             <p class="text-sm text-gray-500 mb-1">Monthly {{ report.overall_status|title }}</p>
             <p class="text-2xl font-bold {% if report.overall_status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ report.overall_difference|mmk }}</p>
-            <p class="text-xs text-gray-500 mt-1">Adjusted money − total spent</p>
+            <p class="text-xs text-gray-500 mt-1">Adjusted money − direct Main Balance spending</p>
         </div>
     </div>
+
+    {% if report.sub_balance_rows %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+      <h2 class="text-xl font-semibold text-gray-900 mb-4">Sub-Balance Actual Spending · {{ report.main_balance_name }} · {{ selected_month.month_label }}</h2>
+      {% for item in report.sub_balance_rows %}
+      <div class="border-t py-4"><h3 class="font-semibold">{{ item.name }}</h3>
+        <p class="text-sm text-gray-600">Allocated: {{ item.balance_amount|mmk }} · Actual: {{ item.total_actual_spent|mmk }} · {{ item.transaction_count }} transactions · Remaining: {{ item.remaining_balance|mmk }}</p>
+        <div class="overflow-x-auto mt-3"><table class="w-full text-sm"><thead><tr class="bg-gray-100"><th class="text-left px-3 py-2">Category</th><th class="text-right px-3 py-2">Budget</th><th class="text-right px-3 py-2">Actual</th></tr></thead><tbody>
+          {% for category in item.categories %}<tr class="border-b"><td class="px-3 py-2">{{ category.name }}</td><td class="text-right px-3 py-2">{{ category.budget_amount|mmk }}</td><td class="text-right px-3 py-2">{{ category.actual_amount|mmk }}</td></tr>{% empty %}<tr><td colspan="3" class="px-3 py-3 text-sm text-gray-500">No category spending recorded.</td></tr>{% endfor %}
+        </tbody></table></div>
+        {% if item.transactions %}
+        <details class="mt-3"><summary class="cursor-pointer text-sm text-blue-700">View transactions</summary>
+          <div class="overflow-x-auto mt-2"><table class="w-full text-sm"><thead><tr class="bg-gray-50"><th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Category</th><th class="text-left px-3 py-2">Note</th><th class="text-right px-3 py-2">Amount</th></tr></thead>
+          <tbody>{% for transaction in item.transactions %}<tr class="border-t"><td class="px-3 py-2">{{ transaction.date }}</td><td class="px-3 py-2">{{ transaction.category_name }}</td><td class="px-3 py-2">{{ transaction.note|default:"No note" }}</td><td class="px-3 py-2 text-right">{{ transaction.amount|mmk }}</td></tr>{% endfor %}</tbody></table></div>
+        </details>
+        {% else %}<p class="text-sm text-gray-500 mt-3">No Sub-Balance transactions recorded for this period.</p>{% endif %}
+      </div>{% empty %}<p class="text-sm text-gray-500">No Sub-Balances exist for this Main Balance period.</p>{% endfor %}
+      <p class="text-xs text-gray-500">Combined Actual Spending is direct Main Balance spending plus these Sub-Balance amounts, each transaction counted once.</p>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8"><h2 class="text-xl font-semibold text-gray-900 mb-2">Sub-Balance Actual Spending</h2><p class="text-sm text-gray-500">No Sub-Balances exist for this Main Balance period.</p></div>
+    {% endif %}
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
         <h2 class="text-xl font-semibold text-gray-900 mb-4">Category Comparison (Budget vs Actual)</h2>
@@ -59,7 +86,7 @@
                     <tr class="bg-gray-100">
                         <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Budget Estimate</th>
-                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Actual Spent</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Main Balance Direct Actual</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Status</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Difference</th>
                     </tr>
@@ -86,11 +113,11 @@
 
     {% if selected_month %}
     <div class="flex justify-end">
-        <form method="post">
+        <form method="post" class="js-loading-submit">
             {% csrf_token %}
             <input type="hidden" name="action" value="email">
             <input type="hidden" name="budget_month" value="{{ selected_month.id }}">
-            <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-6 py-3 rounded-lg transition">
+        <button type="submit" data-loading-text="Sending report..." class="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-6 py-3 rounded-lg transition">
                 📧 Send Total Report to {{ selected_month.user.email }}
             </button>
         </form>

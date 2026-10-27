@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Pocket Money Management System{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{% static 'css/pmms.css' %}">
     <script>
         tailwind.config = {
             theme: {
@@ -19,25 +21,27 @@
         }
     </script>
 </head>
-<body class="bg-gray-50 min-h-screen">
-    <nav class="bg-white border-b border-gray-200 px-4 md:px-8 h-16 flex items-center sticky top-0 z-50 shadow-sm">
-        <a href="{% url 'budget:home' %}" class="text-xl font-bold text-blue-600 mr-8">💰 Pocket Money</a>
-        <a href="{% url 'budget:home' %}" class="{% if request.resolver_match.url_name == 'home' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-blue-600{% endif %} px-4 py-2 rounded-lg font-medium transition">Home</a>
-        <a href="{% url 'budget:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-blue-600{% endif %} px-4 py-2 rounded-lg font-medium transition">Dashboard</a>
-        <a href="{% url 'budget:reports' %}" class="{% if request.resolver_match.url_name == 'reports' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-blue-600{% endif %} px-4 py-2 rounded-lg font-medium transition">Reports</a>
+<body class="min-h-screen">
+<div class="page-shell">
+    <nav class="pmms-topbar {% if request.resolver_match.url_name == 'home' %}home-topbar{% endif %}">
+        <a href="{% url 'budget:home' %}" class="pmms-brand" aria-label="PMMS by K&apos;s home"><img src="{% static 'images/pmms-logo.jpg' %}" alt="PMMS by K&apos;s"></a>
+        <div class="pmms-topnav"><a href="{% url 'budget:home' %}" class="pmms-topnav-link {% if request.resolver_match.url_name == 'home' %}active{% endif %}"><span aria-hidden="true">&#8962;</span> Home</a>
+        <a href="{% url 'budget:dashboard' %}" class="pmms-topnav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}"><span aria-hidden="true">&#9635;</span> Dashboard</a>
+        <a href="{% url 'budget:reports' %}" class="pmms-topnav-link {% if request.resolver_match.url_name == 'reports' %}active{% endif %}"><span aria-hidden="true">&#9639;</span> Reports</a></div>
 
-        <div class="ml-auto flex items-center gap-2">
+        <div class="pmms-actions">
+            <button class="pmms-theme-toggle" type="button" aria-label="Toggle theme" aria-pressed="false">&#9788;</button>
             {% if request.user.is_authenticated %}
-                <span class="text-sm text-gray-500 mr-2">Hi, {{ request.user.username }}</span>
+                <span class="account-greeting">Hi, {{ request.user.username }}</span>
                 {% if request.user.is_staff %}
-                <a href="{% url 'budget:admin_dashboard' %}" class="{% if request.resolver_match.url_name == 'admin_dashboard' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-gray-800{% endif %} px-3 py-2 rounded-lg font-medium transition">Admin</a>
+                <a href="{% url 'budget:admin_dashboard' %}" class="admin-link {% if request.resolver_match.url_name == 'admin_dashboard' %}active{% endif %}">Admin</a>
                 {% endif %}
-                <a href="{% url 'budget:change_password' %}" class="{% if request.resolver_match.url_name == 'change_password' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-gray-800{% endif %} px-3 py-2 rounded-lg font-medium transition">Change Password</a>
-                <a href="{% url 'budget:logout' %}" class="text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg font-medium transition">Logout</a>
+                <a href="{% url 'budget:change_password' %}" class="pmms-action-link">Change Password</a>
+                <a href="{% url 'budget:logout' %}" class="pmms-action-link">Logout</a>
             {% else %}
-                <a href="{% url 'budget:login' %}" class="{% if request.resolver_match.url_name == 'login' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-blue-600{% endif %} px-4 py-2 rounded-lg font-medium transition">Login</a>
-                <a href="{% url 'budget:register' %}" class="{% if request.resolver_match.url_name == 'register' %}text-blue-600 bg-blue-50{% else %}text-gray-500 hover:text-blue-600{% endif %} px-4 py-2 rounded-lg font-medium transition">Register</a>
-                <a href="{% url 'budget:admin_login' %}" class="{% if request.resolver_match.url_name == 'admin_login' %}text-gray-800 bg-gray-100{% else %}text-gray-500 hover:text-gray-800{% endif %} px-4 py-2 rounded-lg font-medium transition">Admin Login</a>
+                <a href="{% url 'budget:login' %}" class="pmms-action-link">Login</a>
+                <a href="{% url 'budget:register' %}" class="primary">Register</a>
+                <a href="{% url 'budget:admin_login' %}" class="admin-link">Admin Login</a>
             {% endif %}
         </div>
     </nav>
@@ -56,6 +60,51 @@
     </div>
     {% endif %}
 
-    {% block content %}{% endblock %}
+    <main class="page-content {% if request.resolver_match.url_name == 'home' %}home-page-content{% endif %}">
+        {% block content %}{% endblock %}
+    </main>
+    <footer class="pmms-footer site-footer">
+        <div class="footer-brand">
+            <div class="footer-logo"><a href="{% url 'budget:home' %}" class="footer-logo-link" aria-label="PMMS by K&apos;s home"><img src="{% static 'images/pmms-logo.jpg' %}" alt="PMMS by K&apos;s"></a><span>PMMS <em>by K&apos;s</em></span></div>
+            <p>Pocket Money Management System</p>
+            <p class="footer-tagline">Small steps. Better habits. Bigger goals.</p>
+        </div>
+        <div class="footer-links">
+            <h3>Explore</h3>
+            <a href="{% url 'budget:home' %}#home">Home</a>
+            <a href="{% url 'budget:dashboard' %}?tab=setup">Budget Planning</a>
+            <a href="{% url 'budget:dashboard' %}?tab=expenses">Daily Tracking</a>
+            <a href="{% url 'budget:reports' %}">Smart Reports</a>
+        </div>
+        <div class="footer-links">
+            <h3>Get Started</h3>
+            <a href="{% url 'budget:home' %}#steps">How It Works</a>
+            <a href="{% url 'budget:register' %}">Create an Account</a>
+            <a href="{% url 'budget:login' %}">Login</a>
+        </div>
+        <div class="footer-quote">
+            <span class="quote-mark">&ldquo;</span>
+            <p>Manage your money today,<br>for a brighter tomorrow.</p>
+            <small>&mdash; PMMS by K&apos;s</small>
+        </div>
+        <div class="footer-bottom">
+            <span>&copy; {% now "Y" %} PMMS by K&apos;s. All rights reserved.</span>
+            <span>Made for smarter money habits <span aria-hidden="true">♡</span></span>
+        </div>
+    </footer>
+</div>
+    <script>
+        (function () {
+            const themeButton = document.querySelector(".pmms-theme-toggle");
+            if (themeButton) {
+                themeButton.addEventListener("click", function () {
+                    const dark = document.body.classList.toggle("pmms-dark");
+                    themeButton.setAttribute("aria-pressed", String(dark));
+                    themeButton.textContent = dark ? String.fromCodePoint(0x263D) : String.fromCodePoint(0x263C);
+                });
+            }
+        }());
+    </script>
+
 </body>
 </html>

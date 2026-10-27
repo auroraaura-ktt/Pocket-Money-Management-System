@@ -8,17 +8,18 @@
     <h1 class="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
     <p class="text-gray-500 mb-8">Manage your budget by category and track daily expenses.</p>
 
-    <div class="flex gap-2 mb-6 border-b border-gray-200">
+    <div class="flex flex-wrap gap-2 mb-6 border-b border-gray-200">
         <a href="?tab=setup" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'setup' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">1. Setup</a>
         <a href="?tab=budget" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'budget' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">2. Budget</a>
         <a href="?tab=expenses" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'expenses' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">3. Daily Expenses</a>
+        <a href="?tab=summary" class="px-5 py-3 font-medium border-b-2 -mb-px transition {% if tab == 'summary' %}text-blue-600 border-blue-600{% else %}text-gray-500 border-transparent hover:text-blue-600{% endif %}">4. Summary</a>
     </div>
 
     {% if tab == 'setup' %}
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Sub Balances</h3>
-            <p class="text-sm text-gray-500 mb-4">Create named balance lists (e.g. Main Wallet, Savings) and group your budget months under them.</p>
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Wallet Groups</h3>
+            <p class="text-sm text-gray-500 mb-4">These existing account groups organize monthly Main Balances.</p>
 
             <h4 class="text-sm font-semibold text-gray-700 mb-2">Your balances</h4>
             <ul class="space-y-2 mb-5">
@@ -37,7 +38,7 @@
                     </form>
                 </li>
                 {% empty %}
-                <li class="text-sm text-gray-400">No sub balances yet. Create one below.</li>
+                <li class="text-sm text-gray-400">No wallet groups yet. Create one below.</li>
                 {% endfor %}
             </ul>
 
@@ -45,78 +46,130 @@
                 {% csrf_token %}
                 <input type="hidden" name="action" value="create_balance">
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Balance name</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Wallet group name</label>
                     {{ balance_form.name }}
                 </div>
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Add Balance</button>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Add Wallet Group</button>
             </form>
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Create Monthly Budget</h3>
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Create Main Balance</h3>
             <form method="post" id="budget-month-form">
                 {% csrf_token %}
                 <input type="hidden" name="action" id="budget-month-action" value="create_budget">
                 <input type="hidden" name="budget_month_id" id="budget-month-id" value="">
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Sub Balance</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Main Balance name</label>
+                    {{ budget_form.name }}
+                    {% if budget_form.name.errors %}<p class="text-red-600 text-sm mt-1">{{ budget_form.name.errors.0 }}</p>{% endif %}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Wallet group</label>
                     {{ budget_form.balance }}
+                    {% for error in budget_form.balance.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">Year</label>
                         {{ budget_form.year }}
+                        {% for error in budget_form.year.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                     </div>
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">Month</label>
                         {{ budget_form.month }}
+                        {% for error in budget_form.month.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                     </div>
                 </div>
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Total Money (MMK)</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Total Main Balance (MMK)</label>
                     {{ budget_form.total_money }}
+                    {% for error in budget_form.total_money.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 </div>
-                <p class="text-sm text-gray-500 mb-4">Creates 3 default categories: Days 1-10, Days 11-20, Days 21-end. Set their budgets in the Budget tab.</p>
-                <button type="submit" id="budget-month-submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Create Budget Month</button>
+                <p class="text-sm text-gray-500 mb-4">A reporting period can have one Main Balance per account. Create named Sub Balances here or from a Main Balance detail page.</p>
+                <button type="submit" id="budget-month-submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Create Main Balance</button>
                 <button type="button" id="cancel-budget-month-edit" class="hidden ml-2 text-gray-600 hover:text-gray-800 underline">Cancel Edit</button>
+            </form>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Create Sub Balance</h3>
+            <p class="text-sm text-gray-500 mb-4">A Sub Balance belongs to a Main Balance and inherits its month and year.</p>
+            <form method="post" class="js-loading-submit">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="create_sub_balance">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ sub_balance_form.budget_month.id_for_label }}">Main Balance</label>
+                    {{ sub_balance_form.budget_month }}
+                    {% for error in sub_balance_form.budget_month.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ sub_balance_form.name.id_for_label }}">Sub Balance name</label>
+                    {{ sub_balance_form.name }}
+                    {% for error in sub_balance_form.name.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ sub_balance_form.balance_amount.id_for_label }}">Opening Balance Amount (MMK)</label>
+                    {{ sub_balance_form.balance_amount }}
+                    {% for error in sub_balance_form.balance_amount.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ sub_balance_form.balance_date.id_for_label }}">Date</label>
+                    {{ sub_balance_form.balance_date }}
+                    {% for error in sub_balance_form.balance_date.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                    <p class="text-xs text-gray-500 mt-1">The date must fall within the selected Main Balance month.</p>
+                </div>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="sub-balance-month-display">Month (inherited)</label>
+                        <input id="sub-balance-month-display" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg bg-gray-100" readonly value="">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="sub-balance-year-display">Year (inherited)</label>
+                        <input id="sub-balance-year-display" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg bg-gray-100" readonly value="">
+                    </div>
+                </div>
+                {% if sub_balance_form.non_field_errors %}
+                <p class="text-red-600 text-sm mb-4">{{ sub_balance_form.non_field_errors.0 }}</p>
+                {% endif %}
+                <button type="submit" data-loading-text="Creating Sub Balance..." class="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-5 py-2.5 rounded-lg transition">Create Sub Balance</button>
             </form>
         </div>
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Your Budget Months</h3>
+        <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">Your Main Balances</h3>
         {% if budget_months %}
-        <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead>
-                    <tr class="bg-gray-100">
-                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Sub Balance</th>
-                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Month</th>
-                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Total Money</th>
-                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Categories</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for bm in budget_months %}
-                    <tr class="border-b border-gray-100">
-                        <td class="px-4 py-3">{{ bm.balance.name|default:bm.user.name }}</td>
-                        <td class="px-4 py-3">{{ bm.month_label }}</td>
-                        <td class="px-4 py-3 text-right font-medium">{{ bm.total_money|mmk }}</td>
-                        <td class="px-4 py-3 text-right">
-                            <div class="flex items-center justify-end gap-3">
-                                <button type="button" class="text-xs text-blue-600 hover:text-blue-800 underline edit-budget-month" data-budget-month-id="{{ bm.id }}" data-balance-id="{% if bm.balance %}{{ bm.balance.id }}{% endif %}" data-year="{{ bm.year }}" data-month="{{ bm.month }}" data-total-money="{{ bm.total_money }}">Edit</button>
-                                <form method="post" class="inline-block">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="action" value="delete_budget_month">
-                                    <input type="hidden" name="budget_month_id" value="{{ bm.id }}">
-                                    <button type="submit" class="text-xs text-red-600 hover:text-red-800 underline" onclick="return confirm('Delete this budget month and all its categories?');">Delete</button>
-                                </form>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {% for bm in budget_months %}
+            <div class="rounded-xl border border-gray-200 p-5 hover:border-blue-300 hover:shadow-sm transition">
+                <a class="block" href="{% url 'budget:main_balance_detail' bm.id %}">
+                    <p class="text-sm text-gray-500">{{ bm.month_label }}</p>
+                    <h4 class="text-xl font-semibold text-gray-900 mt-1">{{ bm.name|default:bm.month_label }}</h4>
+                </a>
+                <p class="mt-3 text-gray-700">{{ bm.total_money|mmk }}</p>
+                <p class="text-sm text-gray-500">{{ bm.num_sub_balances }} Sub Balance{{ bm.num_sub_balances|pluralize }} · Monthly report {% if bm.monthly_report_sent %}sent{% else %}scheduled at month end{% endif %}</p>
+                <div class="mt-3 border-t border-gray-100 pt-3">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Sub Balances</p>
+                    {% if bm.sub_balances.all %}
+                    <ul class="space-y-1">
+                        {% for sub_balance in bm.sub_balances.all %}
+                        <li><a class="text-sm text-blue-700 hover:underline" href="{% url 'budget:sub_balance_detail' sub_balance.id %}">{{ sub_balance.name }}</a></li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-sm text-gray-400">No Sub Balances yet.</p>
+                    {% endif %}
+                </div>
+                <div class="flex flex-wrap items-center gap-3 mt-4">
+                    <a class="text-sm text-blue-700 hover:underline" href="{% url 'budget:main_balance_detail' bm.id %}">View</a>
+                    <a class="text-sm text-blue-700 hover:underline" href="{% url 'budget:edit_main_balance' bm.id %}">Edit</a>
+                    <form method="post" action="{% url 'budget:delete_main_balance' bm.id %}">{% csrf_token %}
+                        <button class="text-sm text-red-600 hover:underline" onclick="return confirm('Delete {{ bm.name|escapejs }} for {{ bm.month_label|escapejs }}? This also deletes {{ bm.num_sub_balances }} Sub Balances, their categories and transactions, and all dependent records. This cannot be undone.');">Delete</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
         </div>
         {% else %}
         <p class="text-gray-500 text-center py-8">No budget months yet.</p>
@@ -218,8 +271,8 @@
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">Set Custom Category Budget</h3>
-            <p class="text-sm text-gray-500 mb-4">Update the budget amount for an existing custom category (e.g. Shopping, Transport).</p>
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">Manage Custom Expense Categories</h3>
+            <p class="text-sm text-gray-500 mb-4">Add or update expense categories and their estimates. These categories remain separate from Sub Balances.</p>
             <form method="post">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="save_custom_category_budget">
@@ -252,7 +305,7 @@
                 {% if custom_budget_form.non_field_errors %}
                 <p class="text-red-600 text-sm mb-4">{{ custom_budget_form.non_field_errors.0 }}</p>
                 {% endif %}
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Save Budget</button>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Save Category Budget</button>
             </form>
         </div>
     </div>
@@ -303,7 +356,7 @@
                     <tr class="border-b border-gray-100">
                         <td class="px-4 py-3 text-sm text-gray-600">{{ cat.budget_month.month_label }}</td>
                         <td class="px-4 py-3 font-medium">
-                            {{ cat.name }}
+                            <span class="text-gray-800">{{ cat.name }}</span>
                             <button type="button" class="ml-2 text-xs text-blue-600 hover:text-blue-800 underline edit-category-budget" data-category-id="{{ cat.id }}" data-budget-month-id="{{ cat.budget_month.id }}" data-category-name="{{ cat.name }}" data-budget-amount="{{ cat.estimated_amount }}">Edit</button>
                             <form method="post" class="inline-block ml-2">
                                 {% csrf_token %}
@@ -323,60 +376,251 @@
         {% endif %}
     </div>
 
+    {% elif tab == 'summary' %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+        <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <div>
+                <h2 class="text-xl font-semibold text-gray-900">Summary</h2>
+                <p class="text-sm text-gray-500 mt-1">Monthly overview for your balances, spending, and remaining cash.</p>
+            </div>
+            {% if budget_months %}
+            <form method="get" class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                <input type="hidden" name="tab" value="summary">
+                <label class="text-sm font-medium text-gray-700" for="summary-month">Month</label>
+                <select id="summary-month" name="summary_month" class="w-full sm:w-64 px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    {% for bm in budget_months %}
+                    <option value="{{ bm.id }}" {% if summary_month and summary_month.id == bm.id %}selected{% endif %}>{{ bm.month_label }}{% if bm.name %} — {{ bm.name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">View Summary</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if summary_report %}
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Available Money</p>
+            <p class="text-2xl font-bold text-gray-900">{{ summary_report.total_money|mmk }}</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Main Balance — Direct Actual Spending</p>
+            <p class="text-2xl font-bold text-gray-900">{{ summary_report.direct_actual_spent|mmk }}</p>
+            <p class="text-xs text-gray-500 mt-1">{{ summary_report.main_transaction_count }} transactions</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Sub-Balance Actual Spending</p>
+            <p class="text-2xl font-bold text-gray-900">{{ summary_report.sub_balance_total_actual_spent|mmk }}</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Combined Actual Spending</p>
+            <p class="text-2xl font-bold text-gray-900">{{ summary_report.combined_actual_spent|mmk }}</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Remaining Balance</p>
+            <p class="text-2xl font-bold {% if summary_report.remaining_balance >= 0 %}text-blue-600{% else %}text-red-600{% endif %}">{{ summary_report.remaining_balance|mmk }}</p>
+            <p class="text-xs text-gray-500 mt-1">Available money minus direct Main Balance spending</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 {% if summary_report.overall_status == 'surplus' %}bg-green-50 border-green-200{% else %}border-red-200 bg-red-50{% endif %}">
+            <p class="text-sm text-gray-500 mb-1">Monthly Summary</p>
+            <p class="text-2xl font-bold {% if summary_report.overall_status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ summary_report.overall_difference|mmk }}</p>
+            <p class="text-xs mt-1 text-gray-500">Adjusted available money minus direct Main Balance spending</p>
+        </div>
+    </div>
+
+    {% if summary_report.sub_balance_rows %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Sub Balance overview</h3>
+        <div class="space-y-4">
+            {% for item in summary_report.sub_balance_rows %}
+            <div class="border border-gray-200 rounded-xl p-4">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
+                    <div>
+                        <h4 class="font-semibold text-gray-900">{{ item.name }}</h4>
+                        <p class="text-sm text-gray-500">{{ summary_month.month_label }} · Allocated {{ item.balance_amount|mmk }}</p>
+                    </div>
+                    <div class="text-sm font-medium text-gray-700">
+                        Actual spending {{ item.total_actual_spent|mmk }} · {{ item.transaction_count }} transactions · Remaining {{ item.remaining_balance|mmk }}
+                    </div>
+                </div>
+                {% if item.transactions %}
+                <details class="mt-3">
+                    <summary class="cursor-pointer text-sm text-blue-700">View Sub-Balance transactions</summary>
+                    <div class="overflow-x-auto mt-2">
+                        <table class="w-full text-sm">
+                            <thead><tr class="bg-gray-50"><th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Category</th><th class="text-left px-3 py-2">Note</th><th class="text-right px-3 py-2">Amount</th></tr></thead>
+                            <tbody>{% for transaction in item.transactions %}<tr class="border-t border-gray-100"><td class="px-3 py-2">{{ transaction.date }}</td><td class="px-3 py-2">{{ transaction.category_name }}</td><td class="px-3 py-2">{{ transaction.note|default:"No note" }}</td><td class="px-3 py-2 text-right">{{ transaction.amount|mmk }}</td></tr>{% endfor %}</tbody>
+                        </table>
+                    </div>
+                </details>
+                {% else %}
+                <p class="mt-3 text-sm text-gray-500">No Sub-Balance transactions for this period.</p>
+                {% endif %}
+                {% if item.categories %}
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="bg-gray-50">
+                                <th class="text-left px-3 py-2 text-gray-600">Category</th>
+                                <th class="text-right px-3 py-2 text-gray-600">Budget</th>
+                                <th class="text-right px-3 py-2 text-gray-600">Actual</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for category in item.categories %}
+                            <tr class="border-t border-gray-100">
+                                <td class="px-3 py-2 text-gray-800">{{ category.name }}</td>
+                                <td class="px-3 py-2 text-right text-gray-700">{{ category.budget_amount|mmk }}</td>
+                                <td class="px-3 py-2 text-right text-gray-700">{{ category.actual_amount|mmk }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Main Balance direct spending by category</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-gray-100">
+                        <th class="text-left px-4 py-3 font-semibold text-gray-600">Category</th>
+                        <th class="text-right px-4 py-3 font-semibold text-gray-600">Budget</th>
+                        <th class="text-right px-4 py-3 font-semibold text-gray-600">Direct actual</th>
+                        <th class="text-right px-4 py-3 font-semibold text-gray-600">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in summary_report.period_reports %}
+                    <tr class="border-b border-gray-100">
+                        <td class="px-4 py-3 font-medium text-gray-800">
+                            {{ item.category_name }}
+                            {% if item.start_day is not None %}<span class="block text-xs text-gray-500">Days {{ item.start_day }}–{{ item.end_day }}</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right text-gray-700">{{ item.budget_amount|mmk }}</td>
+                        <td class="px-4 py-3 text-right text-gray-700">{{ item.actual_amount|mmk }}</td>
+                        <td class="px-4 py-3 text-right font-semibold {% if item.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ item.status|title }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% elif budget_months %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
+        <div class="text-5xl mb-3">📊</div>
+        <h3 class="text-xl font-semibold text-gray-800 mb-2">No summary available yet</h3>
+        <p class="text-gray-500">Create a Main Balance and add a few expenses to populate the summary.</p>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
+        <div class="text-5xl mb-3">🏦</div>
+        <h3 class="text-xl font-semibold text-gray-800 mb-2">Set up your budget first</h3>
+        <p class="text-gray-500">Create a Main Balance to unlock the Summary dashboard.</p>
+    </div>
+    {% endif %}
+
     {% elif tab == 'expenses' %}
-    {% if expense_report %}
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+    <nav class="grid grid-cols-2 max-w-sm rounded-full border border-gray-200 bg-white p-1 mb-6" aria-label="Actual Money balance type">
+        <a href="?tab=expenses&amp;expense_type=main{% if expense_comparison_month %}&amp;expense_month={{ expense_comparison_month.id }}{% endif %}" class="rounded-full px-4 py-2 text-center text-sm transition {% if expense_type == 'main' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:bg-gray-50{% endif %}" {% if expense_type == 'main' %}aria-current="page"{% endif %}>Main Balance</a>
+        <a href="?tab=expenses&amp;expense_type=sub{% if expense_comparison_month %}&amp;expense_month={{ expense_comparison_month.id }}{% endif %}{% if selected_sub_balance %}&amp;sub_balance={{ selected_sub_balance.id }}{% endif %}" class="rounded-full px-4 py-2 text-center text-sm transition {% if expense_type == 'sub' %}bg-gray-100 text-gray-900{% else %}text-gray-500 hover:bg-gray-50{% endif %}" {% if expense_type == 'sub' %}aria-current="page"{% endif %}>Sub-Balance</a>
+    </nav>
+    {% if expense_report and expense_type == 'main' %}
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <p class="text-sm text-gray-500 mb-1">Total Money (Available)</p>
             <p class="text-2xl font-bold text-gray-900">{{ expense_report.total_money|mmk }}</p>
         </div>
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <p class="text-sm text-gray-500 mb-1">Actually Spent</p>
-            <p class="text-2xl font-bold text-gray-900">{{ expense_report.total_actual_spent|mmk }}</p>
+            <p class="text-sm text-gray-500 mb-1">Main Balance — Direct Actual Spending</p>
+            <p class="text-2xl font-bold text-gray-900">{{ expense_report.direct_actual_spent|mmk }}</p>
+            <p class="text-xs text-gray-500 mt-1">{{ expense_report.main_transaction_count }} transactions</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Combined Actual Spending</p>
+            <p class="text-2xl font-bold text-gray-900">{{ expense_report.combined_actual_spent|mmk }}</p>
         </div>
         <div class="bg-white rounded-xl shadow-sm border p-5 {% if expense_report.remaining_balance >= 0 %}border-blue-200 bg-blue-50{% else %}border-red-200 bg-red-50{% endif %}">
             <p class="text-sm text-gray-500 mb-1">Remaining Balance</p>
             <p class="text-2xl font-bold {% if expense_report.remaining_balance >= 0 %}text-blue-600{% else %}text-red-600{% endif %}">{{ expense_report.remaining_balance|mmk }}</p>
-            <p class="text-xs text-gray-500 mt-1">Available − Spent</p>
+            <p class="text-xs text-gray-500 mt-1">Available − direct Main Balance spending</p>
+        </div>
+    </div>
+    {% endif %}
+    {% if expense_type == 'sub' and selected_sub_balance %}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Allocated Balance · {{ selected_sub_balance.name }}</p>
+            <p class="text-2xl font-bold text-gray-900">{{ selected_sub_balance.allocated_amount|mmk }}</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Sub-Balance Actual Spending · {{ selected_sub_balance.name }}</p>
+            <p class="text-2xl font-bold text-gray-900">{{ selected_sub_balance.total_actual_spent|mmk }}</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <p class="text-sm text-gray-500 mb-1">Remaining Balance</p>
+            <p class="text-2xl font-bold {% if selected_sub_balance.remaining_balance >= 0 %}text-blue-600{% else %}text-red-600{% endif %}">{{ selected_sub_balance.remaining_balance|mmk }}</p>
         </div>
     </div>
     {% endif %}
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <div class="grid grid-cols-1 {% if expense_type == 'main' %}lg:grid-cols-2{% endif %} gap-6 mb-8">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">Add Daily Expense</h3>
-            <p class="text-sm text-gray-500 mb-4">Choose a category (custom categories apply to the whole month). The date must match the category.</p>
-            <form method="post">
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">{% if expense_type == 'sub' %}Add Actual Money to a Sub-Balance{% else %}Add Daily Expense{% endif %}</h3>
+            <p class="text-sm text-gray-500 mb-4">{% if expense_type == 'sub' %}Choose the Sub-Balance and one of its categories. Its Main Balance month is inherited and the spending date must fall within that month.{% else %}Choose a Main Balance category (custom categories apply to the whole month). The date must match the category period.{% endif %}</p>
+            <form method="post" class="js-loading-submit">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="add_expense">
+                <input type="hidden" name="expense_type" value="{{ expense_type }}">
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
                     {{ expense_form.budget_month }}
+                    {% for error in expense_form.budget_month.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 </div>
+                {% if expense_type == 'sub' %}
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_form.sub_balance.id_for_label }}">Sub-Balance</label>
+                    {{ expense_form.sub_balance }}
+                    {% for error in expense_form.sub_balance.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                    <p class="text-xs text-gray-500 mt-1">Categories are managed within each Sub-Balance. <a id="manage-sub-balance-categories" class="text-blue-700 hover:underline {% if not selected_sub_balance %}hidden{% endif %}" href="{% if selected_sub_balance %}{% url 'budget:sub_balance_detail' selected_sub_balance.id %}{% else %}#{% endif %}">Manage categories</a></p>
+                </div>
+                {% endif %}
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
                     {{ expense_form.category }}
                     {% if expense_form.category.errors %}<p class="text-red-600 text-sm mt-1">{{ expense_form.category.errors.0 }}</p>{% endif %}
+                    <p id="expense-category-load-error" class="hidden text-red-600 text-sm mt-1" role="alert"></p>
                 </div>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Date</label>
                     {{ expense_form.expense_date }}
+                    {% for error in expense_form.expense_date.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 </div>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
                     {{ expense_form.amount }}
+                    {% for error in expense_form.amount.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 </div>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Note (optional)</label>
                     {{ expense_form.note }}
+                    {% for error in expense_form.note.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 </div>
                 {% if expense_form.non_field_errors %}
                 <p class="text-red-600 text-sm mb-4">{{ expense_form.non_field_errors.0 }}</p>
                 {% endif %}
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Add Expense</button>
+                <button type="submit" data-loading-text="Saving Actual Money..." class="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-5 py-2.5 rounded-lg transition">{% if expense_type == 'sub' %}Add Actual Money{% else %}Add Expense{% endif %}</button>
             </form>
         </div>
 
+        {% if expense_type == 'main' %}
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 class="text-lg font-semibold text-gray-900 mb-2">Add Unexpected Money</h3>
             <p class="text-sm text-gray-500 mb-4">Add extra income or a refund to a category. It is recorded as a negative expense so the dashboard reflects the additional available money.</p>
@@ -415,16 +659,82 @@
                 <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Add Extra Money</button>
             </form>
         </div>
+        {% endif %}
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">All Expenses by Category</h3>
+        <h3 class="text-lg font-semibold text-gray-900 mb-2">Create a custom category</h3>
+        <p class="text-sm text-gray-500 mb-4">Type any category name. New categories are associated with the selected Main Balance or Sub-Balance and can then be used for actual spending.</p>
+        <form method="post" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="create_expense_category">
+            <input type="hidden" name="category_type" value="{{ expense_type }}">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_category_form.budget_month.id_for_label }}">Main Balance month</label>
+                {{ expense_category_form.budget_month }}
+                {% for error in expense_category_form.budget_month.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+            </div>
+            {% if expense_type == 'sub' %}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_category_form.sub_balance.id_for_label }}">Sub-Balance</label>
+                {{ expense_category_form.sub_balance }}
+                {% for error in expense_category_form.sub_balance.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+            </div>
+            {% endif %}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_category_form.name.id_for_label }}">Category name</label>
+                {{ expense_category_form.name }}
+                {% for error in expense_category_form.name.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+            </div>
+            {% if expense_category_form.non_field_errors %}<p class="text-red-600 text-sm">{{ expense_category_form.non_field_errors.0 }}</p>{% endif %}
+            <div>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Create Category</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+        {% if expense_type == 'sub' and expense_comparison_month %}
+        <div class="mb-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-3">Sub-Balance totals · {{ expense_comparison_month.month_label }}</h3>
+            {% if expense_comparison_month.sub_balances.all %}
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {% for sub_balance in expense_comparison_month.sub_balances.all %}
+                <div class="rounded-xl border border-gray-200 p-4">
+                    <h4 class="font-semibold text-gray-900">{{ sub_balance.name }}</h4>
+                    <p class="mt-2 text-sm text-gray-600">Allocated Balance: {{ sub_balance.allocated_amount|mmk }}</p>
+                    <p class="text-sm text-gray-600">Sub-Balance Actual Spending: {{ sub_balance.total_actual_spent|mmk }}</p>
+                    <p class="text-sm font-medium text-gray-800">Remaining: {{ sub_balance.remaining_balance|mmk }}</p>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-sm text-gray-500">No Sub Balances for this month yet. Create one from <a href="?tab=setup" class="text-blue-700 hover:underline">Setup</a>.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+        <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">{% if expense_type == 'sub' %}Sub-Balance Actual Money{% else %}All Expenses by Category{% endif %}</h3>
+        {% if expense_type == 'sub' and expense_comparison_month %}
+        <form method="get" class="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
+            <input type="hidden" name="tab" value="expenses">
+            <input type="hidden" name="expense_type" value="sub">
+            <input type="hidden" name="expense_month" value="{{ expense_comparison_month.id }}">
+            <label for="sub-balance-record-filter" class="text-sm font-medium text-gray-700">Filter Sub-Balance records</label>
+            <select id="sub-balance-record-filter" name="sub_balance" class="w-full sm:w-64 px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" onchange="this.form.submit()">
+                <option value="">All Sub-Balances</option>
+                {% for sub_balance in expense_comparison_month.sub_balances.all %}
+                <option value="{{ sub_balance.id }}" {% if selected_sub_balance and selected_sub_balance.id == sub_balance.id %}selected{% endif %}>{{ sub_balance.name }}</option>
+                {% endfor %}
+            </select>
+        </form>
+        {% endif %}
         {% if expenses %}
         <div class="overflow-x-auto">
             <table class="w-full">
                 <thead>
                     <tr class="bg-gray-100">
                         <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Date</th>
+                        {% if expense_type == 'sub' %}<th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Sub-Balance</th>{% endif %}
                         <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Amount</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Action</th>
@@ -434,10 +744,11 @@
                     {% for exp in expenses %}
                     <tr class="border-b border-gray-100">
                         <td class="px-4 py-3 text-sm">{{ exp.expense_date }}</td>
+                        {% if expense_type == 'sub' %}<td class="px-4 py-3">{{ exp.sub_balance.name }}</td>{% endif %}
                         <td class="px-4 py-3">{{ exp.category.name }}</td>
                         <td class="px-4 py-3 text-right font-medium {% if exp.amount < 0 %}text-green-600{% else %}text-gray-900{% endif %}">{{ exp.amount|mmk }}</td>
                         <td class="px-4 py-3 text-right">
-                            <button type="button" class="text-xs text-blue-600 hover:text-blue-800 underline edit-expense" data-expense-id="{{ exp.id }}" data-budget-month="{{ exp.budget_month.id }}" data-category="{{ exp.category.id }}" data-date="{{ exp.expense_date|date:'Y-m-d' }}" data-amount="{{ exp.amount }}" data-note="{{ exp.note|default:'' }}">Edit</button>
+                            <button type="button" class="text-xs text-blue-600 hover:text-blue-800 underline edit-expense" data-expense-id="{{ exp.id }}" data-budget-month="{{ exp.budget_month.id }}" data-sub-balance="{{ exp.sub_balance_id|default:'' }}" data-category="{{ exp.category.id }}" data-date="{{ exp.expense_date|date:'Y-m-d' }}" data-amount="{{ exp.amount }}" data-note="{{ exp.note|default:'' }}">Edit</button>
                             <form method="post" class="inline-block ml-2">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="delete_expense">
@@ -457,6 +768,8 @@
                 {% csrf_token %}
                 <input type="hidden" name="action" value="update_expense">
                 <input type="hidden" name="expense_id" id="edit-expense-id">
+                <input type="hidden" name="expense_type" value="{{ expense_type }}">
+                <input type="hidden" name="sub_balance" id="edit-expense-sub-balance">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Month</label>
                     <select name="budget_month" id="edit-expense-budget-month" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -484,12 +797,12 @@
                     <input type="text" name="note" id="edit-expense-note" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Optional">
                 </div>
                 <div class="md:col-span-5 flex justify-end">
-                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Update Expense</button>
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition" onclick="this.disabled=true; this.form.submit();">Update Expense</button>
                 </div>
             </form>
         </div>
         {% else %}
-        <p class="text-gray-500 text-center py-8">No expenses recorded yet.</p>
+        <p class="text-gray-500 text-center py-8">{% if expense_type == 'sub' %}No Sub-Balance Actual Money recorded for this Main Balance month yet.{% else %}No expenses recorded yet.{% endif %}</p>
         {% endif %}
     </div>
 
@@ -502,6 +815,7 @@
             {% if budget_months %}
             <form method="get" class="flex items-end gap-3">
                 <input type="hidden" name="tab" value="expenses">
+                <input type="hidden" name="expense_type" value="{{ expense_type }}">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
                     <select name="expense_month" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" onchange="this.form.submit()">
@@ -515,13 +829,21 @@
         </div>
 
         {% if period_comparisons %}
+        <div class="flex justify-end mb-4">
+            <form method="post" class="js-loading-submit">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="finish_month">
+                <input type="hidden" name="budget_month_id" value="{{ expense_comparison_month.id }}">
+                <button type="submit" data-loading-text="Sending report..." class="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-5 py-2.5 rounded-lg transition">Finish and Email Monthly Report</button>
+            </form>
+        </div>
         <div class="overflow-x-auto">
             <table class="w-full">
                 <thead>
                     <tr class="bg-gray-100">
                         <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Budget Estimate</th>
-                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Actual Spent</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Main Balance Direct Actual</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Status</th>
                         <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Difference</th>
                     </tr>
@@ -553,6 +875,39 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const subBalanceParentSelect = document.getElementById('sub-balance-budget-month');
+    const subBalanceDate = document.getElementById('sub-balance-date');
+    const subBalanceMonthDisplay = document.getElementById('sub-balance-month-display');
+    const subBalanceYearDisplay = document.getElementById('sub-balance-year-display');
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+    function updateSubBalancePeriod(resetDate) {
+        if (!subBalanceParentSelect || !subBalanceDate) return;
+        const selectedOption = subBalanceParentSelect.options[subBalanceParentSelect.selectedIndex];
+        const match = selectedOption ? selectedOption.textContent.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b/) : null;
+        if (!match) return;
+        const month = monthNames.indexOf(match[1]) + 1;
+        const year = Number(match[2]);
+        const lastDay = new Date(year, month, 0).getDate();
+        const firstValue = `${year}-${String(month).padStart(2, '0')}-01`;
+        const lastValue = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        subBalanceDate.min = firstValue;
+        subBalanceDate.max = lastValue;
+        if (resetDate || !subBalanceDate.value || subBalanceDate.value < firstValue || subBalanceDate.value > lastValue) {
+            subBalanceDate.value = firstValue;
+        }
+        if (subBalanceMonthDisplay) subBalanceMonthDisplay.value = match[1];
+        if (subBalanceYearDisplay) subBalanceYearDisplay.value = String(year);
+    }
+
+    if (subBalanceParentSelect) {
+        updateSubBalancePeriod(false);
+        subBalanceParentSelect.addEventListener('change', () => updateSubBalancePeriod(true));
+        if (subBalanceDate) {
+            subBalanceDate.addEventListener('change', () => updateSubBalancePeriod(false));
+        }
+    }
+
     // --- Budget month editor: prefill the create form for edits ---
     const budgetMonthAction = document.getElementById('budget-month-action');
     const budgetMonthIdInput = document.getElementById('budget-month-id');
@@ -594,8 +949,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Daily Expense form: load categories for the selected month ---
     const monthSelect = document.getElementById('expense-budget-month');
+    const subBalanceSelect = document.getElementById('expense-sub-balance');
     const categorySelect = document.getElementById('expense-category');
     const dateInput = document.getElementById('expense-date');
+    const categoryLoadError = document.getElementById('expense-category-load-error');
+    const expenseTypeInput = document.querySelector('input[name="expense_type"]');
+    const manageSubBalanceCategories = document.getElementById('manage-sub-balance-categories');
+    const subBalanceDetailUrl = "{% url 'budget:sub_balance_detail' 0 %}";
 
     if (monthSelect && categorySelect) {
         let categories = [];
@@ -606,34 +966,142 @@ document.addEventListener('DOMContentLoaded', function() {
             return 3;
         }
 
+        const expenseCategoryMonth = document.getElementById('expense-category-budget-month');
+        const expenseCategorySubBalance = document.getElementById('expense-category-sub-balance');
+
+        async function loadExpenseCategorySubBalances(monthId) {
+            if (!expenseCategorySubBalance) return;
+            const previous = expenseCategorySubBalance.value;
+            expenseCategorySubBalance.innerHTML = '<option value="">Select a Sub-Balance...</option>';
+            if (!monthId) return;
+            try {
+                const response = await fetch(`/api/categories/${monthId}/`);
+                if (!response.ok) throw new Error(`Sub-Balance request failed (${response.status}).`);
+                const data = await response.json();
+                (data.sub_balances || []).forEach(subBalance => {
+                    const option = document.createElement('option');
+                    option.value = subBalance.id;
+                    option.textContent = subBalance.name;
+                    expenseCategorySubBalance.appendChild(option);
+                });
+                if (Array.from(expenseCategorySubBalance.options).some(option => option.value === previous)) {
+                    expenseCategorySubBalance.value = previous;
+                }
+            } catch (error) {
+                console.error('Unable to load Sub-Balances for custom categories.', error);
+            }
+        }
+
+        if (expenseCategoryMonth && expenseCategorySubBalance) {
+            expenseCategoryMonth.addEventListener('change', () => loadExpenseCategorySubBalances(expenseCategoryMonth.value));
+            if (expenseCategoryMonth.value) loadExpenseCategorySubBalances(expenseCategoryMonth.value);
+        }
+
         function autoSelectCategory() {
-            if (!dateInput || !dateInput.value || categories.length === 0) return;
+            if (!dateInput || !dateInput.value || categories.length === 0 || (expenseTypeInput && expenseTypeInput.value === 'sub')) return;
             const day = parseInt(dateInput.value.split('-')[2], 10);
             const index = periodIndexForDay(day);
-            const match = categories.find(c => c.period_index === index);
+            const match = categories.find(c => c.period_index === index && c.sub_balance_id === null);
             if (match) categorySelect.value = match.id;
+        }
+
+        function renderExpenseCategories() {
+            const selectedCategoryId = categorySelect.value;
+            const selectedSubBalanceId = subBalanceSelect ? subBalanceSelect.value : '';
+            const isSubBalanceMode = expenseTypeInput && expenseTypeInput.value === 'sub';
+            const relevantCategories = categories.filter(category => {
+                if (isSubBalanceMode && selectedSubBalanceId) {
+                    return String(category.sub_balance_id) === String(selectedSubBalanceId);
+                }
+                return !category.sub_balance_id;
+            });
+            categorySelect.innerHTML = '<option value="">Select category...</option>';
+            relevantCategories.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat.id;
+                opt.textContent = cat.name;
+                categorySelect.appendChild(opt);
+            });
+            if (relevantCategories.some(category => String(category.id) === selectedCategoryId)) {
+                categorySelect.value = selectedCategoryId;
+            }
+            if (isSubBalanceMode && !selectedSubBalanceId) {
+                categorySelect.disabled = true;
+            } else {
+                categorySelect.disabled = false;
+            }
+            autoSelectCategory();
         }
 
         async function loadCategories(monthId) {
             if (!monthId) {
                 categorySelect.innerHTML = '<option value="">Select category...</option>';
                 categories = [];
+                if (subBalanceSelect) {
+                    subBalanceSelect.innerHTML = '<option value="">Select a Sub-Balance...</option>';
+                }
                 return;
             }
-            const resp = await fetch(`/api/categories/${monthId}/`);
-            const data = await resp.json();
-            categories = data.categories;
-            categorySelect.innerHTML = '<option value="">Select category...</option>';
-            data.categories.forEach(cat => {
-                const opt = document.createElement('option');
-                opt.value = cat.id;
-                opt.textContent = cat.name;
-                categorySelect.appendChild(opt);
-            });
-            autoSelectCategory();
+            if (categoryLoadError) {
+                categoryLoadError.textContent = '';
+                categoryLoadError.classList.add('hidden');
+            }
+            categorySelect.disabled = true;
+            try {
+                const resp = await fetch(`/api/categories/${monthId}/`);
+                if (!resp.ok) throw new Error(`Category request failed (${resp.status}).`);
+                const data = await resp.json();
+                categories = Array.isArray(data.categories) ? data.categories : [];
+                if (subBalanceSelect) {
+                    const selectedSubBalanceId = subBalanceSelect.value;
+                    subBalanceSelect.innerHTML = '<option value="">Select a Sub-Balance...</option>';
+                    (data.sub_balances || []).forEach(subBalance => {
+                        const option = document.createElement('option');
+                        option.value = subBalance.id;
+                        option.textContent = subBalance.name;
+                        subBalanceSelect.appendChild(option);
+                    });
+                    if (Array.from(subBalanceSelect.options).some(option => option.value === selectedSubBalanceId)) {
+                        subBalanceSelect.value = selectedSubBalanceId;
+                    }
+                    if (manageSubBalanceCategories) {
+                        if (subBalanceSelect.value) {
+                            manageSubBalanceCategories.href = subBalanceDetailUrl.replace(/0\/$/, `${subBalanceSelect.value}/`);
+                            manageSubBalanceCategories.classList.remove('hidden');
+                        } else {
+                            manageSubBalanceCategories.classList.add('hidden');
+                        }
+                    }
+                }
+                renderExpenseCategories();
+            } catch (error) {
+                console.error('Unable to load expense categories.', error);
+                categorySelect.innerHTML = '<option value="">Categories could not be loaded</option>';
+                if (categoryLoadError) {
+                    categoryLoadError.textContent = 'Categories could not be loaded. Check your connection and try again.';
+                    categoryLoadError.classList.remove('hidden');
+                }
+            } finally {
+                if (!(subBalanceSelect && expenseTypeInput && expenseTypeInput.value === 'sub' && !subBalanceSelect.value)) {
+                    categorySelect.disabled = false;
+                }
+            }
         }
 
         monthSelect.addEventListener('change', () => loadCategories(monthSelect.value));
+        if (subBalanceSelect) {
+            subBalanceSelect.addEventListener('change', function() {
+                renderExpenseCategories();
+                if (manageSubBalanceCategories) {
+                    if (subBalanceSelect.value) {
+                        manageSubBalanceCategories.href = subBalanceDetailUrl.replace(/0\/$/, `${subBalanceSelect.value}/`);
+                        manageSubBalanceCategories.classList.remove('hidden');
+                    } else {
+                        manageSubBalanceCategories.classList.add('hidden');
+                    }
+                }
+            });
+        }
         if (dateInput) dateInput.addEventListener('change', autoSelectCategory);
         if (monthSelect.value) loadCategories(monthSelect.value);
     }
@@ -711,13 +1179,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Existing expense editor ---
     const expenseEditorMonth = document.getElementById('edit-expense-budget-month');
+    const expenseEditorSubBalance = document.getElementById('edit-expense-sub-balance');
     const expenseEditorCategory = document.getElementById('edit-expense-category');
     const expenseEditorId = document.getElementById('edit-expense-id');
     const expenseEditorDate = document.getElementById('edit-expense-date');
     const expenseEditorAmount = document.getElementById('edit-expense-amount');
     const expenseEditorNote = document.getElementById('edit-expense-note');
 
-    async function loadExpenseEditorCategories(monthId) {
+    async function loadExpenseEditorCategories(monthId, subBalanceId) {
         if (!expenseEditorMonth || !expenseEditorCategory) return;
         if (!monthId) {
             expenseEditorCategory.innerHTML = '<option value="">Select category...</option>';
@@ -726,7 +1195,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const resp = await fetch(`/api/categories/${monthId}/`);
         const data = await resp.json();
         expenseEditorCategory.innerHTML = '<option value="">Select category...</option>';
-        data.categories.forEach(cat => {
+        data.categories.filter(cat => (
+            subBalanceId
+                ? String(cat.sub_balance_id) === String(subBalanceId)
+                : !cat.sub_balance_id
+        )).forEach(cat => {
             const opt = document.createElement('option');
             opt.value = cat.id;
             opt.textContent = cat.name;
@@ -735,8 +1208,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     if (expenseEditorMonth && expenseEditorCategory) {
-        expenseEditorMonth.addEventListener('change', () => loadExpenseEditorCategories(expenseEditorMonth.value));
-        if (expenseEditorMonth.value) loadExpenseEditorCategories(expenseEditorMonth.value);
+        expenseEditorMonth.addEventListener('change', () => loadExpenseEditorCategories(expenseEditorMonth.value, expenseEditorSubBalance ? expenseEditorSubBalance.value : ''));
+        if (expenseEditorMonth.value) loadExpenseEditorCategories(expenseEditorMonth.value, expenseEditorSubBalance ? expenseEditorSubBalance.value : '');
     }
 
     document.querySelectorAll('.edit-expense').forEach(button => {
@@ -744,7 +1217,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!expenseEditorMonth || !expenseEditorCategory || !expenseEditorId || !expenseEditorDate || !expenseEditorAmount || !expenseEditorNote) return;
 
             expenseEditorMonth.value = this.dataset.budgetMonth;
-            loadExpenseEditorCategories(this.dataset.budgetMonth).then(() => {
+            if (expenseEditorSubBalance) expenseEditorSubBalance.value = this.dataset.subBalance || '';
+            loadExpenseEditorCategories(this.dataset.budgetMonth, this.dataset.subBalance || '').then(() => {
                 expenseEditorCategory.value = this.dataset.category;
             });
             expenseEditorId.value = this.dataset.expenseId;
@@ -768,7 +1242,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const resp = await fetch(`/api/categories/${monthId}/`);
             const data = await resp.json();
             unexpectedCategorySelect.innerHTML = '<option value="">Select category...</option>';
-            data.categories.forEach(cat => {
+            data.categories.filter(cat => !cat.sub_balance_id).forEach(cat => {
                 const opt = document.createElement('option');
                 opt.value = cat.id;
                 opt.textContent = cat.name;

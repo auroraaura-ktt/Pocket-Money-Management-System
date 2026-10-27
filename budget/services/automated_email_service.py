@@ -52,7 +52,12 @@ def _log_sent(budget_month_id: int, report_type: str) -> None:
 
 def category_actual_spent(category: BudgetCategory) -> Decimal:
     """Total actual money spent on a category (magnitude of all expenses)."""
-    total = DailyExpense.objects.filter(category=category).aggregate(
+    expenses = DailyExpense.objects.filter(category=category)
+    if category.sub_balance_id is None:
+        expenses = expenses.filter(sub_balance__isnull=True)
+    else:
+        expenses = expenses.filter(sub_balance_id=category.sub_balance_id)
+    total = expenses.aggregate(
         total=Sum(Abs(F("amount")))
     )["total"]
     return Decimal(str(total or 0))
@@ -83,6 +88,12 @@ def send_category_report_email(category: BudgetCategory) -> bool:
         category_name=category.name,
         budget=category.estimated_amount,
         actual=actual,
+        balance_name=(
+            category.sub_balance.name
+            if category.sub_balance_id
+            else "Main Balance"
+        ),
+        period_label=category.budget_month.month_label,
     )
     if sent:
         _log_sent(category.budget_month_id, report_type)

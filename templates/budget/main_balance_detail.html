@@ -1,0 +1,61 @@
+{% extends "budget/base.html" %}
+{% load currency_tags %}
+{% block title %}{{ main_balance.name|default:main_balance.month_label }} - Pocket Money{% endblock %}
+{% block content %}
+<div class="max-w-6xl mx-auto p-4 md:p-8">
+  <p class="text-sm mb-4"><a class="text-blue-600 hover:underline" href="{% url 'budget:dashboard' %}?tab=setup">← Setup</a></p>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+      <div>
+        <p class="text-sm text-gray-500">Main Balance · {{ main_balance.month_label }}</p>
+        <h1 class="text-3xl font-bold text-gray-900">{{ main_balance.name|default:main_balance.month_label }}</h1>
+        <p class="mt-2 text-gray-700">Total Main Balance: <strong>{{ main_balance.total_money|mmk }}</strong></p>
+        <p class="text-sm text-gray-500">Monthly report: {% if monthly_report_sent %}Sent{% else %}Scheduled for month end{% endif %}</p>
+      </div>
+      <div class="flex gap-3">
+        <a class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg" href="{% url 'budget:edit_main_balance' main_balance.id %}">Edit Main Balance</a>
+        <form method="post" action="{% url 'budget:delete_main_balance' main_balance.id %}">{% csrf_token %}
+          <button class="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-lg" onclick="return confirm('Delete {{ main_balance.name|escapejs }} ({{ main_balance.month_label|escapejs }})? This will also delete {{ sub_balance_rows|length }} Sub Balances, their transactions and categories, Main Balance categories and transactions, and associated report history. This cannot be undone.');">Delete</button>
+        </form>
+      </div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+      <div class="rounded-lg bg-gray-50 p-4"><p class="text-sm text-gray-500">Main Balance — Direct Actual Spending</p><p class="text-xl font-semibold">{{ report.direct_actual_spent|mmk }}</p><p class="text-xs text-gray-500">{{ report.main_transaction_count }} transactions</p></div>
+      <div class="rounded-lg bg-gray-50 p-4"><p class="text-sm text-gray-500">Combined Actual Spending</p><p class="text-xl font-semibold">{{ report.combined_actual_spent|mmk }}</p><p class="text-xs text-gray-500">Direct Main Balance and Sub-Balances</p></div>
+      <div class="rounded-lg bg-gray-50 p-4"><p class="text-sm text-gray-500">Estimated money</p><p class="text-xl font-semibold">{{ report.total_budget_estimated|mmk }}</p></div>
+      <div class="rounded-lg bg-blue-50 p-4"><p class="text-sm text-gray-500">Remaining Main Balance</p><p class="text-xl font-semibold">{{ report.remaining_balance|mmk }}</p><p class="text-xs text-gray-500">Available money minus direct Main Balance spending</p></div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+    <h2 class="text-xl font-semibold mb-4">Main Balance direct transactions · {{ main_balance.month_label }}</h2>
+    {% if report.main_transactions %}
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead><tr class="bg-gray-100"><th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Category</th><th class="text-left px-3 py-2">Note</th><th class="text-right px-3 py-2">Amount</th></tr></thead>
+      <tbody>{% for item in report.main_transactions %}<tr class="border-t"><td class="px-3 py-2">{{ item.date }}</td><td class="px-3 py-2">{{ item.category_name }}</td><td class="px-3 py-2">{{ item.note|default:"No note" }}</td><td class="px-3 py-2 text-right">{{ item.amount|mmk }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="text-sm text-gray-500">No direct Main Balance transactions recorded for this period.</p>{% endif %}
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <div class="flex items-center justify-between gap-4 mb-5">
+      <div><h2 class="text-xl font-semibold">Sub Balances</h2><p class="text-sm text-gray-500">Each Sub Balance belongs to this reporting month.</p></div>
+      <a class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg" href="{% url 'budget:create_sub_balance' main_balance.id %}">Add Sub Balance</a>
+    </div>
+    {% if sub_balance_rows %}<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {% for item in sub_balance_rows %}<div class="rounded-xl border border-gray-200 p-5">
+        <a class="text-lg font-semibold text-blue-700 hover:underline" href="{% url 'budget:sub_balance_detail' item.sub_balance.id %}">{{ item.sub_balance.name }}</a>
+        <p class="text-sm text-gray-500 mt-1">Created {{ item.sub_balance.created_at|date:"F j, Y" }}</p>
+        <div class="grid grid-cols-2 gap-3 mt-4 text-sm"><p>Allocated: <strong>{{ item.sub_balance.allocated_amount|mmk }}</strong></p><p>Sub-Balance actual spending: <strong>{{ item.sub_balance.total_actual_spent|mmk }}</strong></p></div>
+        <p class="text-xs text-gray-500 mt-3">Daily expenses remain classified under existing expense categories.</p>
+        <div class="flex flex-wrap gap-3 mt-4 items-center">
+          <a class="text-sm text-blue-700 hover:underline" href="{% url 'budget:sub_balance_detail' item.sub_balance.id %}">View</a>
+          <a class="text-sm text-blue-700 hover:underline" href="{% url 'budget:edit_sub_balance' item.sub_balance.id %}">Edit</a>
+          <form method="post" action="{% url 'budget:delete_sub_balance' item.sub_balance.id %}">{% csrf_token %}<button class="text-sm text-red-600 hover:underline" onclick="return confirm('Delete {{ item.sub_balance.name|escapejs }} under {{ main_balance.name|escapejs }}, created {{ item.sub_balance.created_at|date:"F j, Y" }}? This may affect financial records or scheduled reports.');">Delete</button></form>
+          <form method="post" action="{% url 'budget:finish_sub_balance' item.sub_balance.id %}">{% csrf_token %}<button class="text-sm text-green-700 hover:underline">Finish and email</button></form>
+        </div>
+      </div>{% endfor %}
+    </div>{% else %}<div class="rounded-lg bg-gray-50 p-8 text-center"><p class="text-gray-600">No Sub Balances yet. Add a named balance whenever you need one.</p><a class="inline-block mt-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg" href="{% url 'budget:create_sub_balance' main_balance.id %}">Add Sub Balance</a></div>{% endif %}
+  </div>
+</div>
+{% endblock %}

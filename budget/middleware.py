@@ -25,6 +25,7 @@ CACHE_TTL = 60 * 60 * 12  # 12 hours; also reset naturally at midnight
 
 # Separate cache key for the two monthly report schedules (1st / 16th).
 MONTHLY_CACHE_KEY = "pmms_monthly_schedules_last_run"
+SUB_BALANCE_CACHE_KEY = "pmms_sub_balance_schedules_last_run"
 
 
 class AutoEmailMiddleware:
@@ -36,6 +37,7 @@ class AutoEmailMiddleware:
     def __call__(self, request):
         self._maybe_run_automated_emails()
         self._maybe_run_monthly_schedules()
+        self._maybe_run_sub_balance_schedules()
         return self.get_response(request)
 
     def _maybe_run_automated_emails(self) -> None:
@@ -83,4 +85,22 @@ class AutoEmailMiddleware:
             # Never break the request because of the monthly scheduler.
             logger.exception("Monthly schedule email scheduler failed")
 
+        cache.set(cache_key, True, CACHE_TTL)
+
+    def _maybe_run_sub_balance_schedules(self) -> None:
+        """Run independent per-Sub-Balance 15-day reports once per day."""
+        today = timezone.localdate()
+        cache_key = f"{SUB_BALANCE_CACHE_KEY}:{today.isoformat()}"
+        if cache.get(cache_key):
+            return
+        try:
+            from budget.services.sub_balance_schedule_service import (
+                process_sub_balance_schedules,
+            )
+
+            results = process_sub_balance_schedules(today=today)
+            if results["sent"]:
+                logger.info("15-day Sub Balance reports sent: %s", results["sent"])
+        except Exception:
+            logger.exception("15-day Sub Balance report scheduler failed")
         cache.set(cache_key, True, CACHE_TTL)

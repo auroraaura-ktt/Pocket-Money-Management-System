@@ -1,0 +1,46 @@
+{% extends "budget/base.html" %}
+{% load currency_tags %}
+{% block title %}{{ sub_balance.name }} - Pocket Money{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto p-4 md:p-8">
+  <p class="text-sm mb-4"><a class="text-blue-600 hover:underline" href="{% url 'budget:main_balance_detail' main_balance.id %}">← {{ main_balance.name|default:main_balance.month_label }}</a></p>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <div class="flex flex-col md:flex-row md:justify-between gap-4">
+      <div><p class="text-sm text-gray-500">Sub Balance · {{ main_balance.month_label }}</p><h1 class="text-3xl font-bold">{{ sub_balance.name }}</h1><p class="text-sm text-gray-500 mt-2">Date {{ sub_balance.balance_date|date:"F j, Y" }} · Created {{ sub_balance.created_at|date:"F j, Y" }} · 15-day report due {{ report_due_date|date:"F j, Y" }}</p></div>
+      <div class="flex flex-wrap gap-2"><a class="bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 active:bg-blue-800 text-white font-semibold px-4 py-2 rounded-lg transition-colors" href="{% url 'budget:edit_sub_balance' sub_balance.id %}">Edit</a>
+        <form method="post" action="{% url 'budget:delete_sub_balance' sub_balance.id %}">{% csrf_token %}<button class="bg-red-600 hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 active:bg-red-800 text-white font-semibold px-4 py-2 rounded-lg transition-colors" onclick="return confirm('Delete {{ sub_balance.name|escapejs }} under {{ main_balance.name|escapejs }}, created {{ sub_balance.created_at|date:"F j, Y" }}? Associated financial records and scheduled reports may prevent deletion.');">Delete</button></form>
+      </div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-7">
+      <div class="rounded-lg bg-gray-50 p-4"><p class="text-sm text-gray-500">Allocated Amount</p><p class="text-xl font-semibold">{{ sub_balance.allocated_amount|mmk }}</p></div>
+      <div class="rounded-lg bg-gray-50 p-4"><p class="text-sm text-gray-500">Sub-Balance Actual Spending</p><p class="text-xl font-semibold">{{ total_actual_spent|mmk }}</p><p class="text-xs text-gray-500">{{ transactions|length }} transactions</p></div>
+      <div class="rounded-lg bg-blue-50 p-4"><p class="text-sm text-gray-500">Remaining</p><p class="text-xl font-semibold">{% if remaining_balance is not None %}{{ remaining_balance|mmk }}{% else %}Not set{% endif %}</p></div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-7">
+      <section><h2 class="text-lg font-semibold mb-3">Categories</h2>
+        <form method="post" class="space-y-3 mb-4">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="add_category">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ category_form.name.id_for_label }}">Category Name</label>
+                {{ category_form.name }}
+                {% for error in category_form.name.errors %}<p class="text-sm text-red-600 mt-1">{{ error }}</p>{% endfor %}
+            </div>
+            <button class="bg-blue-600 text-white px-3 py-2 rounded-lg" onclick="this.disabled=true; this.form.submit();">Add category</button>
+            {% for error in category_form.non_field_errors %}<p class="text-sm text-red-600 mt-1">{{ error }}</p>{% endfor %}
+        </form>
+        {% for category in categories %}<div class="border-b py-2 flex items-center justify-between gap-2"><div class="flex-1"><span class="font-medium">{{ category.name }}</span><span class="text-sm text-gray-500 ml-2">{{ category.actual_amount|mmk }} actual{% if category.estimated_amount %} · {{ category.estimated_amount|mmk }} budget{% endif %}</span></div><form method="post" class="inline">{% csrf_token %}<input type="hidden" name="action" value="delete_category"><input type="hidden" name="category_id" value="{{ category.id }}"><button type="submit" class="text-sm text-red-600 hover:underline" onclick="return confirm('Delete category {{ category.name|escapejs }}?');">Delete</button></form></div>{% empty %}<p class="text-sm text-gray-500">No categories yet.</p>{% endfor %}
+      </section>
+      <section><h2 class="text-lg font-semibold mb-3">Add transaction</h2>
+        <form method="post" class="space-y-3">{% csrf_token %}<input type="hidden" name="action" value="add_transaction">{% for field in transaction_form %}<div>{{ field.label_tag }}{{ field }}{% for error in field.errors %}<p class="text-sm text-red-600">{{ error }}</p>{% endfor %}</div>{% endfor %}<button class="bg-blue-600 text-white px-4 py-2 rounded-lg" onclick="this.disabled=true; this.form.submit();">Record spending</button></form>
+      </section>
+    </div>
+    <section class="mt-7"><h2 class="text-lg font-semibold mb-3">Transactions</h2>{% for item in transactions %}<div class="border-b py-3"><p class="font-medium">{{ item.expense_date }} · {{ item.category.name }} · {{ item.note|default:"Spending" }} · {{ item.amount|mmk }}</p><form method="post" class="grid grid-cols-1 md:grid-cols-5 gap-2 mt-2">{% csrf_token %}<input type="hidden" name="action" value="update_transaction"><input type="hidden" name="transaction_id" value="{{ item.id }}"><select name="category" class="border rounded p-2">{% for category in categories %}<option value="{{ category.id }}" {% if category.id == item.category_id %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select><input type="date" name="expense_date" value="{{ item.expense_date|date:'Y-m-d' }}" class="border rounded p-2"><input type="number" min="1" step="1" name="amount" value="{{ item.amount }}" class="border rounded p-2"><input name="note" value="{{ item.note|default:'' }}" class="border rounded p-2"><button class="text-blue-700" onclick="this.disabled=true; this.form.submit();">Save</button></form><form method="post" class="mt-1">{% csrf_token %}<input type="hidden" name="action" value="delete_transaction"><input type="hidden" name="transaction_id" value="{{ item.id }}"><button class="text-sm text-red-600" onclick="return confirm('Delete this transaction?');">Delete transaction</button></form></div>{% empty %}<p class="text-sm text-gray-500">No transactions yet.</p>{% endfor %}</section>
+    <div class="border-t mt-6 pt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div class="text-sm text-gray-600"><p>15-day report: {% if scheduled_sent %}Sent{% elif today >= report_due_date %}Due; next scheduler run will send it{% else %}Scheduled{% endif %} (due {{ report_due_date|date:"F j, Y" }})</p><p>Finish report: {% if finish_sent %}Sent before; you can send it again{% else %}Not sent yet{% endif %}</p></div>
+      <form method="post" action="{% url 'budget:finish_sub_balance' sub_balance.id %}" class="js-loading-submit">{% csrf_token %}<button type="submit" data-loading-text="Sending report..." class="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-5 py-2.5 rounded-lg">Finish and Email This Sub Balance</button></form>
+    </div>
+    <p class="text-xs text-gray-500 mt-3">Finish sends only this Sub Balance report. It does not close the balance or cancel its independent 15-day report.</p>
+  </div>
+</div>
+{% endblock %}

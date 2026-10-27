@@ -34,6 +34,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.utils import timezone
+from django.utils.html import escape
 
 from budget.currency import format_mmk
 from budget.models import BudgetCategory, BudgetMonth, ReportEmailLog
@@ -140,25 +141,43 @@ def _no_estimate_category_spending(
     rows: list[dict] = []
     categories = BudgetCategory.objects.filter(
         budget_month=budget_month, estimated_amount=0
-    )
+    ).select_related("sub_balance")
     for category in categories:
         actual = _get_total_actual_spent(
             budget_month.id,
             category_id=category.id,
             start_date=start_date,
             end_date=end_date,
+            main_only=category.sub_balance_id is None,
+            sub_balance_id=category.sub_balance_id,
         )
         if actual > 0:
-            rows.append({"name": category.name, "actual": actual})
+            rows.append(
+                {
+                    "name": category.name,
+                    "balance_name": (
+                        "Main Balance"
+                        if category.sub_balance_id is None
+                        else category.sub_balance.name
+                    ),
+                    "is_direct": category.sub_balance_id is None,
+                    "actual": actual,
+                }
+            )
     return rows
 
 
 def _build_no_estimate_html(
-    user_name: str, period_label: str, rows: list[dict], total: Decimal
+    user_name: str,
+    period_label: str,
+    rows: list[dict],
+    direct_total: Decimal,
+    sub_balance_total: Decimal,
 ) -> str:
     table_rows = "".join(
         "<tr>"
-        f"<td style=\"padding:8px;border-bottom:1px solid #e5e7eb;\">{row['name']}</td>"
+        f"<td style=\"padding:8px;border-bottom:1px solid #e5e7eb;\">{escape(row['balance_name'])}</td>"
+        f"<td style=\"padding:8px;border-bottom:1px solid #e5e7eb;\">{escape(row['name'])}</td>"
         "<td style=\"padding:8px;text-align:right;border-bottom:1px solid #e5e7eb;\">"
         f"{format_mmk(row['actual'])}</td>"
         "</tr>"
@@ -167,7 +186,7 @@ def _build_no_estimate_html(
     return f"""
     <html><body style="font-family: Arial, sans-serif; max-width: 700px; margin: auto;">
     <h1 style="color: #2563eb;">Pocket Money — Spending Without Budget</h1>
-    <p>Hello <strong>{user_name}</strong>,</p>
+    <p>Hello <strong>{escape(user_name)}</strong>,</p>
     <p>Here is an overall report of spending recorded in categories that have
     <strong>no estimated budget</strong> for <strong>{period_label}</strong>.</p>
 
@@ -175,14 +194,21 @@ def _build_no_estimate_html(
         <h2 style="margin-top: 0;">Categories Without Estimated Money</h2>
         <table style="width: 100%; border-collapse: collapse;">
             <tr style="background: #fed7aa;">
+                <th style="padding: 8px; text-align: left;">Balance</th>
                 <th style="padding: 8px; text-align: left;">Category</th>
                 <th style="padding: 8px; text-align: right;">Actually Spent</th>
             </tr>
             {table_rows}
+            <tr><td colspan="2" style="padding: 8px;"><strong>Main Balance — Direct Actual Spending</strong></td>
+                <td style="padding: 8px; text-align: right;"><strong>{format_mmk(direct_total)}</strong></td>
+            </tr>
+            <tr><td colspan="2" style="padding: 8px;"><strong>Sub-Balance Actual Spending</strong></td>
+                <td style="padding: 8px; text-align: right;"><strong>{format_mmk(sub_balance_total)}</strong></td>
+            </tr>
             <tr>
-                <td style="padding: 8px;"><strong>Total</strong></td>
+                <td colspan="2" style="padding: 8px;"><strong>Combined Actual Spending</strong></td>
                 <td style="padding: 8px; text-align: right;">
-                    <strong>{format_mmk(total)}</strong>
+                    <strong>{format_mmk(direct_total + sub_balance_total)}</strong>
                 </td>
             </tr>
         </table>
@@ -230,10 +256,19 @@ def send_no_estimate_overview(today: date, force: bool = False) -> dict:
             )
             continue
 
-        total = sum((row["actual"] for row in rows), Decimal("0"))
+        direct_total = sum(
+            (row["actual"] for row in rows if row["is_direct"]),
+            Decimal("0"),
+        )
+        sub_balance_total = sum(
+            (row["actual"] for row in rows if not row["is_direct"]),
+            Decimal("0"),
+        )
         user = budget_month.user
         subject = f"Pocket Money — Spending Without Budget ({period_label})"
-        html = _build_no_estimate_html(user.name, period_label, rows, total)
+        html = _build_no_estimate_html(
+            user.name, period_label, rows, direct_total, sub_balance_total
+        )
 
         if _send_email(user.email, subject, html):
             _log_sent(budget_month.id, NO_ESTIMATE_FIRST_HALF)
@@ -279,4 +314,3 @@ def process_monthly_schedules(
             results["skipped"].append("no-estimate overview — schedule error")
 
     return results
-

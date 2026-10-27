@@ -1,6 +1,8 @@
 """Django forms for Pocket Money Management System."""
 
 from decimal import Decimal
+from calendar import monthrange
+from datetime import date
 
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
@@ -16,6 +18,7 @@ from .models import (
     BudgetMonth,
     DailyExpense,
     PocketUser,
+    SubBalance,
 )
 
 INPUT_CLASS = (
@@ -25,6 +28,13 @@ INPUT_CLASS = (
 
 # Number of custom category slots in the budget-estimate form.
 CUSTOM_CATEGORY_SLOTS = 5
+
+
+def _primary_key_or_none(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class UserForm(forms.ModelForm):
@@ -195,15 +205,24 @@ class BudgetMonthForm(forms.ModelForm):
         widget=forms.Select(attrs={"class": INPUT_CLASS}),
     )
 
+    name = forms.CharField(
+        label="Main Balance name",
+        max_length=100,
+        strip=True,
+        widget=forms.TextInput(
+            attrs={"class": INPUT_CLASS, "placeholder": "e.g. October 2026", "required": True}
+        ),
+    )
+
     balance = forms.ModelChoiceField(
         queryset=Balance.objects.none(),
-        empty_label="Select a sub balance...",
+        empty_label="Select a wallet group...",
         widget=forms.Select(attrs={"class": INPUT_CLASS}),
     )
 
     class Meta:
         model = BudgetMonth
-        fields = ["balance", "year", "month", "total_money"]
+        fields = ["name", "balance", "year", "month", "total_money"]
         widgets = {
             "year": forms.NumberInput(
                 attrs={"class": INPUT_CLASS, "min": 2020, "max": 2100}
@@ -217,6 +236,15 @@ class BudgetMonthForm(forms.ModelForm):
                 }
             ),
         }
+
+    total_money = forms.DecimalField(
+        min_value=1,
+        max_digits=12,
+        decimal_places=0,
+        widget=forms.NumberInput(
+            attrs={"class": INPUT_CLASS, "min": 1, "step": 1, "required": True}
+        ),
+    )
 
     def __init__(self, *args, **kwargs):
         balance_qs = kwargs.pop("balance_qs", None)
@@ -234,6 +262,18 @@ class BudgetMonthForm(forms.ModelForm):
             now = timezone.now()
             self.fields["year"].initial = now.year
             self.fields["month"].initial = now.month
+
+    def clean_name(self):
+        name = self.cleaned_data.get("name", "").strip()
+        if not name:
+            raise forms.ValidationError("Enter a Main Balance name.")
+        return name
+
+    def clean_year(self):
+        year = self.cleaned_data["year"]
+        if year < 2020 or year > 2100:
+            raise forms.ValidationError("Enter a year from 2020 through 2100.")
+        return year
 
     def save(self, commit=True):
         from budget.services.category_service import create_default_period_categories
@@ -273,6 +313,293 @@ class CategoryForm(forms.ModelForm):
         category.estimated_amount = Decimal("0")
         category.period_index = None
         category.save()
+        return category
+
+
+class MainBalanceUpdateForm(forms.ModelForm):
+    """Edit a monthly Main Balance without allowing its period to move."""
+
+    class Meta:
+        model = BudgetMonth
+        fields = ["name", "total_money"]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": INPUT_CLASS}),
+            "total_money": forms.NumberInput(
+                attrs={"class": INPUT_CLASS, "min": 1, "step": 1}
+            ),
+        }
+
+    total_money = forms.DecimalField(
+        min_value=1,
+        max_digits=12,
+        decimal_places=0,
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": 1, "step": 1}),
+    )
+
+    def clean_name(self):
+        value = (self.cleaned_data.get("name") or "").strip()
+        if not value:
+            raise forms.ValidationError("Enter a Main Balance name.")
+        return value
+
+
+class SubBalanceForm(forms.ModelForm):
+    """Manage a named monthly child while preserving its parent and date."""
+
+    balance_amount = forms.DecimalField(
+        label="Opening Balance Amount (MMK)", required=False, min_value=0,
+        max_digits=12, decimal_places=0,
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": 0, "step": 1}),
+    )
+    balance_date = forms.DateField(
+        label="Date",
+        required=True,
+        widget=forms.DateInput(
+            attrs={"class": INPUT_CLASS, "type": "date", "id": "sub-balance-date"}
+        ),
+    )
+
+    class Meta:
+        model = SubBalance
+        fields = ["name", "balance_amount", "balance_date"]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": INPUT_CLASS}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.parent_month = kwargs.pop("parent_month", None)
+        month_qs = kwargs.pop("month_qs", None)
+        super().__init__(*args, **kwargs)
+        self.fields["name"].max_length = 100
+        if self.parent_month is None:
+            self.fields["budget_month"] = forms.ModelChoiceField(
+                queryset=month_qs if month_qs is not None else BudgetMonth.objects.none(),
+                empty_label="Select a Main Balance...",
+                label="Main Balance",
+                widget=forms.Select(
+                    attrs={"class": INPUT_CLASS, "id": "sub-balance-budget-month"}
+                ),
+            )
+            selected_month = (
+                self.fields["budget_month"].queryset.filter(
+                    pk=_primary_key_or_none(self.data.get("budget_month"))
+                ).first()
+                if self.is_bound and self.data.get("budget_month")
+                else self.fields["budget_month"].queryset.first()
+            )
+        else:
+            selected_month = self.parent_month
+
+        if selected_month:
+            date_attrs = self.fields["balance_date"].widget.attrs
+            min_date = date(selected_month.year, selected_month.month, 1)
+            max_date = date(
+                selected_month.year,
+                selected_month.month,
+                monthrange(selected_month.year, selected_month.month)[1],
+            )
+            date_attrs.update({"min": min_date.isoformat(), "max": max_date.isoformat()})
+            if not self.is_bound and not self.instance.pk:
+                self.initial.setdefault("balance_date", min_date)
+        elif not self.is_bound and self.instance.pk and self.instance.balance_date:
+            self.initial["balance_date"] = self.instance.balance_date
+
+    def clean(self):
+        cleaned = super().clean()
+        balance_amount = cleaned.get("balance_amount")
+        if balance_amount is None:
+            cleaned["balance_amount"] = Decimal("0")
+        budget_month = self.parent_month or cleaned.get("budget_month")
+        balance_date = cleaned.get("balance_date")
+        if budget_month and balance_date and (
+            balance_date.year != budget_month.year
+            or balance_date.month != budget_month.month
+        ):
+            self.add_error(
+                "balance_date",
+                "Date must fall within the selected Main Balance month and year.",
+            )
+        return cleaned
+
+    def clean_balance_amount(self):
+        return self.cleaned_data.get("balance_amount") or Decimal("0")
+
+    def clean_name(self):
+        value = (self.cleaned_data.get("name") or "").strip()
+        if not value:
+            raise forms.ValidationError("Enter a Sub Balance name.")
+        return value
+
+    def save(self, budget_month=None, commit=True):
+        instance = super().save(commit=False)
+        instance.budget_month = (
+            budget_month
+            or self.parent_month
+            or self.cleaned_data.get("budget_month")
+        )
+        if commit:
+            instance.save()
+        return instance
+
+
+class ExpenseCategoryCreateForm(forms.Form):
+    """Create an owner-scoped custom category for Main or Sub-Balance spending."""
+
+    budget_month = forms.ModelChoiceField(
+        queryset=BudgetMonth.objects.none(),
+        label="Main Balance month",
+        widget=forms.Select(
+            attrs={"class": INPUT_CLASS, "id": "expense-category-budget-month"}
+        ),
+    )
+    sub_balance = forms.ModelChoiceField(
+        queryset=SubBalance.objects.none(),
+        label="Sub-Balance",
+        required=False,
+        widget=forms.Select(
+            attrs={"class": INPUT_CLASS, "id": "expense-category-sub-balance"}
+        ),
+    )
+    name = forms.CharField(
+        max_length=100,
+        strip=True,
+        label="Category name",
+        widget=forms.TextInput(
+            attrs={
+                "class": INPUT_CLASS,
+                "id": "expense-category-name",
+                "placeholder": "e.g. Food, Transportation, or any custom category",
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        month_qs = kwargs.pop("month_qs", BudgetMonth.objects.none())
+        sub_balance_qs = kwargs.pop("sub_balance_qs", SubBalance.objects.none())
+        self.sub_balance_required = kwargs.pop("sub_balance_required", False)
+        initial = kwargs.get("initial") or {}
+        super().__init__(*args, **kwargs)
+        self.fields["budget_month"].queryset = month_qs
+        self.fields["sub_balance"].queryset = sub_balance_qs
+        self.fields["sub_balance"].required = self.sub_balance_required
+        month_id = (
+            self.data.get("budget_month")
+            if self.is_bound
+            else getattr(initial.get("budget_month"), "pk", initial.get("budget_month"))
+        )
+        if month_id:
+            month_id = _primary_key_or_none(month_id)
+            if month_id is not None:
+                self.fields["sub_balance"].queryset = sub_balance_qs.filter(
+                    budget_month_id=month_id
+                ).order_by("name", "id")
+
+    def clean(self):
+        cleaned = super().clean()
+        budget_month = cleaned.get("budget_month")
+        sub_balance = cleaned.get("sub_balance")
+        name = cleaned.get("name")
+        if sub_balance and budget_month and sub_balance.budget_month_id != budget_month.id:
+            self.add_error(
+                "sub_balance",
+                "Choose a Sub-Balance that belongs to the selected Main Balance month.",
+            )
+        if self.sub_balance_required and not sub_balance:
+            self.add_error("sub_balance", "Select a Sub-Balance for this category.")
+        if budget_month and name:
+            duplicate = BudgetCategory.objects.filter(
+                budget_month=budget_month,
+                name__iexact=name,
+            ).exists()
+            if duplicate:
+                self.add_error(
+                    "name",
+                    "A category with this name already exists in this Main Balance month.",
+                )
+        return cleaned
+
+    def save(self):
+        return BudgetCategory.objects.create(
+            budget_month=self.cleaned_data["budget_month"],
+            sub_balance=self.cleaned_data["sub_balance"],
+            name=self.cleaned_data["name"],
+            estimated_amount=Decimal("0"),
+            period_index=None,
+        )
+
+
+class SubBalanceTransactionForm(forms.ModelForm):
+    class Meta:
+        model = DailyExpense
+        fields = ["category", "expense_date", "amount", "note"]
+        widgets = {
+            "category": forms.Select(attrs={"class": INPUT_CLASS}),
+            "expense_date": forms.DateInput(attrs={"class": INPUT_CLASS, "type": "date"}),
+            "amount": forms.NumberInput(attrs={"class": INPUT_CLASS, "min": 1, "step": 1}),
+            "note": forms.TextInput(attrs={"class": INPUT_CLASS}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.sub_balance = kwargs.pop("sub_balance")
+        super().__init__(*args, **kwargs)
+        self.fields["category"].queryset = self.sub_balance.categories.all()
+        self.instance.budget_month = self.sub_balance.budget_month
+        self.instance.sub_balance = self.sub_balance
+
+    def clean(self):
+        cleaned = super().clean()
+        category, expense_date, amount = (cleaned.get("category"), cleaned.get("expense_date"), cleaned.get("amount"))
+        month = self.sub_balance.budget_month
+        if category and category.sub_balance_id != self.sub_balance.id:
+            self.add_error("category", "Select a category belonging to this Sub Balance.")
+        if expense_date and (expense_date.year, expense_date.month) != (month.year, month.month):
+            self.add_error("expense_date", "Transaction date must fall within the parent Main Balance month.")
+        if amount is not None and amount <= 0:
+            self.add_error("amount", "Transaction amount must be greater than zero.")
+        return cleaned
+
+    def save(self, commit=True):
+        expense = super().save(commit=False)
+        expense.budget_month = self.sub_balance.budget_month
+        expense.sub_balance = self.sub_balance
+        if commit:
+            expense.save()
+        return expense
+
+
+class SubBalanceCategoryForm(forms.ModelForm):
+    class Meta:
+        model = BudgetCategory
+        fields = ["name"]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": INPUT_CLASS, "placeholder": "e.g. Food"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.sub_balance = kwargs.pop("sub_balance")
+        super().__init__(*args, **kwargs)
+
+    def clean_name(self):
+        name = self.cleaned_data["name"].strip()
+        qs = BudgetCategory.objects.filter(
+            budget_month=self.sub_balance.budget_month,
+            name__iexact=name,
+        )
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError("This category already exists in this Sub Balance.")
+        return name
+
+    def save(self, commit=True):
+        category = super().save(commit=False)
+        category.budget_month = self.sub_balance.budget_month
+        category.sub_balance = self.sub_balance
+        category.period_index = None
+        if category.estimated_amount is None:
+            category.estimated_amount = Decimal("0")
+        if commit:
+            category.save()
         return category
 
 
@@ -575,10 +902,20 @@ class PeriodBudgetForm(forms.Form):
 class DailyExpenseForm(forms.ModelForm):
     class Meta:
         model = DailyExpense
-        fields = ["budget_month", "category", "expense_date", "amount", "note"]
+        fields = [
+            "budget_month",
+            "sub_balance",
+            "category",
+            "expense_date",
+            "amount",
+            "note",
+        ]
         widgets = {
             "budget_month": forms.Select(
                 attrs={"class": INPUT_CLASS, "id": "expense-budget-month"}
+            ),
+            "sub_balance": forms.Select(
+                attrs={"class": INPUT_CLASS, "id": "expense-sub-balance"}
             ),
             "category": forms.Select(
                 attrs={"class": INPUT_CLASS, "id": "expense-category"}
@@ -602,17 +939,42 @@ class DailyExpenseForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         month_qs = kwargs.pop("month_qs", None)
         category_qs = kwargs.pop("category_qs", None)
+        sub_balance_qs = kwargs.pop("sub_balance_qs", None)
+        sub_balance_required = kwargs.pop("sub_balance_required", False)
         super().__init__(*args, **kwargs)
         if month_qs is not None:
             self.fields["budget_month"].queryset = month_qs
+        self.fields["sub_balance"].queryset = SubBalance.objects.none()
+        self.fields["sub_balance"].required = sub_balance_required
+        self.fields["sub_balance"].empty_label = "Select a Sub-Balance..."
         self.fields["category"].queryset = BudgetCategory.objects.none()
         self.fields["category"].empty_label = "Select category..."
 
         month_id = None
-        if self.data.get("budget_month"):
-            month_id = self.data.get("budget_month")
+        if self.is_bound and self.data.get("budget_month"):
+            month_id = _primary_key_or_none(self.data.get("budget_month"))
+        elif not self.is_bound and self.instance.pk:
+            month_id = self.instance.budget_month_id
         elif self.initial.get("budget_month"):
             month_id = self.initial["budget_month"]
+
+        sub_balance_id = None
+        if self.is_bound:
+            sub_balance_id = _primary_key_or_none(self.data.get("sub_balance"))
+        elif self.instance.pk:
+            sub_balance_id = self.instance.sub_balance_id
+        elif self.initial.get("sub_balance"):
+            sub_balance_id = self.initial["sub_balance"]
+
+        if month_id:
+            base_sub_balances = (
+                sub_balance_qs
+                if sub_balance_qs is not None
+                else SubBalance.objects.none()
+            )
+            self.fields["sub_balance"].queryset = base_sub_balances.filter(
+                budget_month_id=month_id
+            ).order_by("name", "id")
 
         if month_id:
             base_qs = (
@@ -620,20 +982,44 @@ class DailyExpenseForm(forms.ModelForm):
                 if category_qs is not None
                 else BudgetCategory.objects
             )
+            category_filters = {"budget_month_id": month_id}
+            if sub_balance_id:
+                category_filters["sub_balance_id"] = sub_balance_id
+            else:
+                category_filters["sub_balance__isnull"] = True
             self.fields["category"].queryset = base_qs.filter(
-                budget_month_id=month_id
+                **category_filters
             ).order_by("period_index", "id")
 
     def clean(self):
         cleaned = super().clean()
         budget_month = cleaned.get("budget_month")
+        sub_balance = cleaned.get("sub_balance")
         category = cleaned.get("category")
         expense_date = cleaned.get("expense_date")
         amount = cleaned.get("amount")
 
+        if sub_balance and budget_month and sub_balance.budget_month_id != budget_month.id:
+            self.add_error(
+                "sub_balance",
+                "Selected Sub-Balance does not belong to the chosen Main Balance month.",
+            )
+
         if budget_month and category and category.budget_month_id != budget_month.id:
-            raise ValidationError(
-                "Selected category does not belong to the chosen budget month."
+            self.add_error(
+                "category",
+                "Selected category does not belong to the chosen budget month.",
+            )
+
+        if category and sub_balance and category.sub_balance_id != sub_balance.id:
+            self.add_error(
+                "category",
+                "Select a category belonging to the chosen Sub-Balance.",
+            )
+        elif category and not sub_balance and category.sub_balance_id:
+            self.add_error(
+                "category",
+                "Sub-Balance categories cannot be used for Main Balance spending.",
             )
 
         if budget_month and expense_date:
@@ -641,20 +1027,22 @@ class DailyExpenseForm(forms.ModelForm):
                 expense_date.year != budget_month.year
                 or expense_date.month != budget_month.month
             ):
-                raise ValidationError(
-                    "Expense date must fall within the selected budget month."
+                self.add_error(
+                    "expense_date",
+                    "Expense date must fall within the selected budget month.",
                 )
 
         if amount is not None and amount <= 0:
-            raise ValidationError("Expense amount must be greater than zero.")
+            self.add_error("amount", "Expense amount must be greater than zero.")
 
         if category and expense_date and category.period_index is not None:
             expected_index = period_index_for_day(expense_date.day)
             if category.period_index != expected_index:
-                raise ValidationError(
+                self.add_error(
+                    "category",
                     f"Date {expense_date} belongs to "
                     f"'{PERIOD_DEFINITIONS[expected_index - 1].name}', "
-                    f"not '{category.name}'."
+                    f"not '{category.name}'.",
                 )
 
         return cleaned
@@ -724,7 +1112,8 @@ class UnexpectedMoneyForm(forms.ModelForm):
                 else BudgetCategory.objects
             )
             self.fields["category"].queryset = base_qs.filter(
-                budget_month_id=month_id
+                budget_month_id=month_id,
+                sub_balance__isnull=True,
             ).order_by("period_index", "id")
 
     def clean(self):

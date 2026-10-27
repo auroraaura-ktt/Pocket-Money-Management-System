@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pocket Money Manager</title>
+<style>
+  :root { --ink:#171717; --muted:#777; --line:#dedede; --soft:#f3f3f3; --danger:#ff3434; --bg:#fff; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:28px 16px; background:#fff; color:var(--ink); font:12px/1.45 Arial, Helvetica, sans-serif; }
+  .intro,.outro { max-width:480px; margin:0 auto 10px; font-size:11px; line-height:1.6; }
+  .app { max-width:480px; margin:0 auto; border:1px solid var(--line); border-radius:13px; padding:10px; background:#fff; }
+  .brand { display:flex; align-items:center; gap:13px; padding:0 6px 10px; }
+  .wallet { width:18px; height:18px; flex:0 0 18px; }
+  .brand-title { font-size:14px; font-weight:600; line-height:1.3; }
+  .brand-sub { color:#777; font-size:9px; margin-top:2px; }
+  label { display:block; color:#555; font-size:10px; margin-bottom:4px; }
+  select,input,textarea { font:inherit; color:var(--ink); }
+  .tabs { display:grid; grid-template-columns:1fr 1fr; gap:0; border-radius:20px; background:#fff; margin:0 0 12px; overflow:hidden; }
+  .tab { border:0; border-radius:20px; background:transparent; color:#777; padding:5px 8px; font-size:10px; cursor:pointer; }
+  .tab.active { background:var(--soft); color:#222; }
+  h2 { font-size:13px; font-weight:500; margin:0 0 10px; }
+  .section-head { display:flex; justify-content:space-between; align-items:center; margin:0 0 9px; }
+  .section-head h2 { margin:0; }
+  .create { border:0; border-radius:20px; background:#111; color:#fff; padding:5px 12px; cursor:pointer; font-size:10px; }
+  .hint { color:#777; font-size:10px; margin:0 0 8px; }
+  .search { width:100%; height:26px; border:1px solid var(--line); border-radius:18px; padding:0 11px; margin-bottom:9px; font-size:10px; outline:none; }
+  .balance-card { border:1px solid var(--line); border-radius:12px; padding:8px; margin-bottom:10px; }
+  .card-top { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+  .card-title { font-size:11px; font-weight:600; }
+  .subtext { font-size:9px; color:#777; margin-top:2px; }
+  .pill { font-size:9px; background:#eee; border-radius:10px; padding:2px 6px; }
+  .metrics { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:8px; }
+  .metric-label { color:#777; font-size:9px; margin-bottom:4px; }
+  .metric-value { font-size:10px; font-weight:500; }
+  .stat-boxes { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin:8px 0 10px; }
+  .stat-box { border:1px solid var(--line); border-radius:5px; padding:7px; }
+  .category-title { font-size:10px; font-weight:600; margin:7px 0 6px; }
+  .category-row { display:flex; justify-content:space-between; gap:12px; padding:4px 0; font-size:10px; }
+  .actions { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:7px; }
+  .action { background:#fff; border:1px solid var(--line); border-radius:18px; padding:4px 8px; font-size:10px; cursor:pointer; }
+  .action.delete { border-color:#ffe0e0; color:#f22; }
+  .view { font-size:10px; color:#555; cursor:pointer; background:none; border:0; }
+  .create-main { display:block; width:100%; border:0; background:#111; color:#fff; border-radius:20px; padding:6px; margin-top:0; font-size:10px; cursor:pointer; }
+  .footnote { color:#888; font-size:8px; margin-top:8px; }
+  .sub-filter-row { display:grid; grid-template-columns:auto minmax(0, 1fr); align-items:center; gap:10px; margin:0 0 8px; }
+  .sub-filter-row label { margin:0; white-space:nowrap; font-size:10px; }
+  .month-filter { display:block; width:100%; min-width:0; max-width:none; height:32px; margin:0; padding:0 30px 0 11px; border:1px solid var(--line); border-radius:10px; background:#fff; font-size:11px; }
+  .month-filter:focus { outline:2px solid #d7d7d7; outline-offset:1px; }
+  .sub-count { margin:0 0 8px; }
+  .view { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; white-space:nowrap; min-width:54px; padding:6px 9px; border:1px solid var(--line); border-radius:16px; background:#fff; color:#333; }
+  .view:hover { background:var(--soft); }
+  .card-top { min-width:0; }
+  .card-top > div { min-width:0; flex:1 1 auto; overflow-wrap:anywhere; }
+  @media(max-width:360px) { .sub-filter-row { grid-template-columns:1fr; gap:4px; } .month-filter { width:100%; } }
+  .panel { display:none; }
+  .panel.active { display:block; }
+  .modal-backdrop { position:fixed; inset:0; background:#0006; display:none; align-items:center; justify-content:center; padding:16px; z-index:10; }
+  .modal-backdrop.open { display:flex; }
+  .modal { width:min(420px,100%); background:white; border-radius:14px; padding:18px; box-shadow:0 10px 40px #0002; }
+  .modal h3 { margin:0 0 14px; font-size:15px; }
+  .field { margin-bottom:10px; }
+  .field input,.field textarea,.field select { width:100%; border:1px solid var(--line); border-radius:8px; padding:8px; font-size:12px; background:white; }
+  .field textarea { min-height:58px; resize:vertical; }
+  .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+  .modal-actions button { border:1px solid var(--line); border-radius:20px; padding:7px 12px; background:white; cursor:pointer; }
+  .modal-actions .save { background:#111; color:white; border-color:#111; }
+  .detail-list { display:grid; gap:9px; }
+  .detail-row { display:flex; justify-content:space-between; gap:14px; padding:9px 0; border-bottom:1px solid var(--line); }
+  .detail-row span:first-child { color:var(--muted); }
+  .detail-row span:last-child { font-weight:600; text-align:right; overflow-wrap:anywhere; }
+  .detail-modal .modal-actions { justify-content:flex-end; }
+  @media(max-width:420px) { body{padding:18px 10px}.app{padding:9px}.intro,.outro{font-size:10px} }
+</style>
+</head>
+<body>
+<p class="intro">Here is a complete interactive UI for both Main Balance and Sub Balance management, including their creation forms, category estimates, viewing, editing, and deletion confirmation. This is a UI demo, not connected to your database.</p>
+
+<main class="app">
+  <header class="brand">
+    <svg class="wallet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4H19v15H5.5A1.5 1.5 0 0 1 4 17.5z"/><path d="M4 7h13.5A1.5 1.5 0 0 0 19 5.5"/><path d="M15 11h5v4h-5a2 2 0 0 1 0-4z"/><circle cx="16.8" cy="13" r=".5" fill="currentColor"/></svg>
+    <div><div class="brand-title">Pocket Money Manager</div><div class="brand-sub">Balance &amp; Budget Management</div></div>
+  </header>
+
+  <nav class="tabs" aria-label="Balance type">
+    <button class="tab active" data-tab="main">Main Balances</button>
+    <button class="tab" data-tab="sub">Sub Balances</button>
+  </nav>
+
+  <section id="mainPanel" class="panel active">
+    <div class="section-head"><h2>Main Balances</h2><button class="create" id="createMain">＋ Create</button></div>
+    <p class="hint">Manage all Main Balances. Choose the month and year when creating or editing a balance.</p>
+    <div id="mainCards"></div>
+  </section>
+
+  <section id="subPanel" class="panel">
+    <div class="section-head"><h2>Sub Balances</h2><button class="create" id="createSub">＋ Create</button></div>
+    <p class="hint">Sub Balances belong to a Main Balance. Their month is inherited from that Main Balance.</p>
+    <div class="sub-filter-row">
+      <label for="subMonthFilter">Budget Month</label>
+      <select class="month-filter" id="subMonthFilter" aria-label="Filter Sub Balances by budget month">
+        <option value="all">All months</option>
+      </select>
+    </div>
+    <div class="hint sub-count" id="subCount" aria-live="polite">Showing 0 Sub Balances</div>
+    <input class="search" id="searchSub" placeholder="Search Sub Balances..." aria-label="Search Sub Balances">
+    <div id="subCards"></div>
+  </section>
+  <div class="footnote">Interactive UI prototype with sample data only. It does not save to your actual database, send emails, or modify your project files.</div>
+</main>
+<p class="outro">This includes both balance forms and their CRUD flows. In your real application, keep monthly Main Balance expenses and Sub Balance expenses connected to the same accounting rules so expenses are counted once, and preserve existing transactions whenever budgets or category estimates are edited.</p>
+
+<div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <form class="modal" id="balanceForm">
+    <h3 id="modalTitle">Create Balance</h3>
+    <div id="formFields"></div>
+    <div class="modal-actions"><button type="button" id="cancelModal">Cancel</button><button class="save" type="submit">Save</button></div>
+  </form>
+</div>
+<div class="modal-backdrop" id="detailBackdrop" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+  <div class="modal detail-modal"><h3 id="detailTitle">Balance Details</h3><div id="detailContent" class="detail-list"></div><div class="modal-actions"><button type="button" id="closeDetails">Close</button></div></div>
+</div>
+
+<script>
+(() => {
+  const money = n => Number(n || 0).toLocaleString('en-US') + ' MMK';
+  const state = {
+    mains: [{id:1, month:'October 2026', name:'Monthly Main Balance', category:'General', budget:500000, spent:180000}],
+    subs: [
+      {id:1,name:'Week 1',mainBalanceId:1,date:'2026-10-01',budget:100000,spent:50000},
+      {id:2,name:'Personal Expenses',mainBalanceId:1,date:'2026-10-05',budget:null,spent:15000}
+    ],
+    nextId:3, nextMainId:2, editing:null, type:null
+  };
+  const $ = id => document.getElementById(id);
+  const month = () => 'October 2026';
+  const backdrop = $('modalBackdrop');
+  const detailBackdrop = $('detailBackdrop');
+  function showDetails(title, rows) {
+    $('detailTitle').textContent = title;
+    $('detailContent').innerHTML = rows.map(([label,value]) => `<div class="detail-row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`).join('');
+    detailBackdrop.classList.add('open');
+  }
+  function closeDetails() { detailBackdrop.classList.remove('open'); }
+  function refreshMain() {
+    const mains = state.mains;
+    $('mainCards').innerHTML = mains.length ? mains.map(m => `
+      <article class="balance-card">
+        <div class="card-top"><div><div class="card-title">${escapeHtml(m.name)}</div><div class="subtext">${escapeHtml(m.month)} · ${escapeHtml(m.category || "No category")}</div></div><button class="view" data-main-view="${m.id}">◎ View</button></div>
+        <div class="metrics">
+          <div><div class="metric-label">Monthly budget</div><div class="metric-value">${money(m.budget)}</div></div>
+          <div><div class="metric-label">Actual spent</div><div class="metric-value">${money(m.spent)}</div></div>
+        </div>
+        <div class="stat-boxes">
+          <div class="stat-box"><div class="metric-label">Budget remaining</div><div class="metric-value">${money(m.budget-m.spent)}</div></div>
+          <div class="stat-box"><div class="metric-label">Sub Balances</div><div class="metric-value">${state.subs.filter(s=>s.mainBalanceId===m.id).length}</div></div>
+        </div>
+        <div class="actions"><button class="action" data-main-edit="${m.id}">✎ Edit</button><button class="action delete" data-main-delete="${m.id}">♧ Delete</button></div>
+      </article>`).join('') : '<p class="hint">No Main Balances for this month yet. Select Create to add one.</p>';
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function formatDate(value) {
+    if (!value) return '';
+    const d = new Date(value + 'T00:00:00');
+    return d.toLocaleDateString('en-US', {day:'numeric', month:'long', year:'numeric'});
+  }
+  function monthInputValue(value) {
+    if (!value) return '';
+    if (/^\\d{4}-\\d{2}$/.test(value)) return value;
+    const parts = value.match(/^([A-Za-z]+) (\\d{4})$/);
+    if (!parts) return '';
+    const d = new Date(`${parts[1]} 1, ${parts[2]}`);
+    return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  }
+  function monthLabel(value) {
+    if (!value) return '';
+    if (/^\\d{4}-\\d{2}$/.test(value)) {
+      const [y,m] = value.split('-').map(Number);
+      return new Date(y, m-1, 1).toLocaleDateString('en-US', {month:'long', year:'numeric'});
+    }
+    return value;
+  }
+  function getMainBalance(id) { return state.mains.find(m => m.id === Number(id)); }
+  function getSubMonth(sub) { return getMainBalance(sub.mainBalanceId)?.month || ''; }
+  function monthToDate(value) {
+    const parts = value.match(/^([A-Za-z]+) (\\d{4})$/);
+    if (!parts) return '';
+    const d = new Date(`${parts[1]} 1, ${parts[2]}`);
+    return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+  }
+  function refreshSubMonthFilter() {
+    const select = $('subMonthFilter');
+    const previous = select.value || 'all';
+    const months = [...new Set(state.mains.map(m => m.month).filter(Boolean))];
+    select.innerHTML = '<option value="all">All months</option>' + months.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+    select.value = months.includes(previous) || previous === 'all' ? previous : 'all';
+  }
+  function refreshSubs() {
+    const q = $('searchSub').value.toLowerCase();
+    const selectedMonth = $('subMonthFilter').value || 'all';
+    const subs = state.subs.filter(s => {
+      const nameMatches = s.name.toLowerCase().includes(q);
+      const monthMatches = selectedMonth === 'all' || getSubMonth(s) === selectedMonth;
+      return nameMatches && monthMatches;
+    });
+    $('subCount').textContent = `Showing ${subs.length} of ${state.subs.length} Sub Balance${state.subs.length === 1 ? '' : 's'}${selectedMonth === 'all' ? '' : ` for ${selectedMonth}`}`;
+    $('subCards').innerHTML = subs.length ? subs.map(s=>`
+      <article class="balance-card">
+        <div class="card-top"><div><div class="card-title">${escapeHtml(s.name)}</div><div class="subtext">${formatDate(s.date)} · Main: ${escapeHtml(getMainBalance(s.mainBalanceId)?.name || "Missing Main Balance")}</div></div><button class="view" data-view="${s.id}">◎ View</button></div>
+        <div class="metrics">
+          <div><div class="metric-label">Optional budget</div><div class="metric-value">${s.budget===null?'Not set':money(s.budget)}</div></div>
+          <div><div class="metric-label">Actual spending</div><div class="metric-value">${money(s.spent)}</div></div>
+        </div>
+        <div><div class="metric-label">Remaining budget</div><div class="metric-value">${s.budget===null?'No budget set':money(s.budget-s.spent)}</div></div>
+        <div class="actions"><button class="action" data-edit="${s.id}">♢ Edit</button><button class="action delete" data-delete="${s.id}">♙ Delete</button></div>
+      </article>`).join('') : '<p class="hint">No Sub Balances found.</p>';
+  }
+  function openModal(type, item=null) {
+    state.type=type; state.editing=item ? item.id : null;
+    $('modalTitle').textContent = (item?'Edit ':'Create ') + (type==='main'?'Main Balance':'Sub Balance');
+    let fields='';
+    if(type==='main') {
+      const m=item || {name:'',budget:0,spent:0,month:month()};
+      fields=`<div class="field"><label for="mainName">Main Balance name</label><input id="mainName" name="name" required maxlength="70" value="${escapeHtml(m.name)}" placeholder="e.g. Monthly Main Balance"></div>
+      <div class="field"><label for="mainCategory">Category name</label><input id="mainCategory" name="category" required maxlength="70" value="${escapeHtml(m.category || '')}" placeholder="e.g. Household"></div>
+      <div class="field"><label for="budget">Monthly budget (MMK)</label><input id="budget" name="budget" type="number" min="0" required value="${m.budget}"></div>
+      <div class="field"><label for="spent">Actual spent (MMK)</label><input id="spent" name="spent" type="number" min="0" required value="${m.spent}"></div>
+      <div class="field"><label for="mainFormMonth">Budget Month (Month / Year)</label><input id="mainFormMonth" name="month" type="month" required value="${monthInputValue(m.month || month())}"></div>`;
+    } else {
+      const s=item || {name:'',budget:'',spent:0,month:month()};
+      fields=`<div class="field"><label for="name">Sub Balance name</label><input id="name" name="name" required maxlength="70" value="${escapeHtml(s.name)}" placeholder="e.g. Week 1"></div>
+      <div class="field"><label for="subBudget">Optional budget (MMK)</label><input id="subBudget" name="budget" type="number" min="0" value="${s.budget===null?'':s.budget}" placeholder="Leave blank for no budget"></div>
+      <div class="field"><label for="parentMain">Main Balance (parent)</label><select id="parentMain" name="mainBalanceId" required>${state.mains.map(m=>`<option value="${m.id}" ${Number(m.id)===(s.mainBalanceId || state.mains.find(x=>x.month===month())?.id)?'selected':''}>${escapeHtml(m.name)}</option>`).join('')}</select></div>
+      <div class="field"><label for="subDate">Sub Balance date (day, month, year)</label><input id="subDate" name="date" type="date" required value="${s.date || monthToDate(getMainBalance(s.mainBalanceId)?.month || month())}"></div>
+      <div class="field"><label for="subSpent">Actual spending (MMK)</label><input id="subSpent" name="spent" type="number" min="0" required value="${s.spent}"></div>`;
+    }
+    $('formFields').innerHTML=fields;
+    backdrop.classList.add('open');
+  }
+  function closeModal(){backdrop.classList.remove('open');}
+  $('balanceForm').addEventListener('submit',e=>{
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget);
+    if(state.type==='main') {
+      const data={name:fd.get('name').trim(),category:fd.get('category').trim(),budget:Number(fd.get('budget')),spent:Number(fd.get('spent')),month:monthLabel(fd.get('month'))};
+      if(state.editing!==null) Object.assign(state.mains.find(m=>m.id===state.editing),data);
+      else state.mains.push({id:state.nextMainId++,...data});
+      refreshMain();
+    } else {
+      const budget=fd.get('budget')===''?null:Number(fd.get('budget'));
+      const data={name:fd.get('name').trim(),budget,spent:Number(fd.get('spent')),date:fd.get('date'),mainBalanceId:Number(fd.get('mainBalanceId'))};
+      if(state.editing!==null) Object.assign(state.subs.find(s=>s.id===state.editing),data);
+      else state.subs.push({id:state.nextId++,...data});
+      refreshSubMonthFilter(); refreshSubs(); refreshMain();
+    }
+    closeModal();
+  });
+  $('cancelModal').onclick=closeModal;
+  $('closeDetails').onclick=closeDetails;
+  detailBackdrop.addEventListener('click',e=>{if(e.target===detailBackdrop)closeDetails();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeDetails();}});
+  backdrop.addEventListener('click',e=>{if(e.target===backdrop)closeModal();});
+  $('createMain').onclick=()=>openModal('main');
+  $('mainCards').addEventListener('click',e=>{
+    const view=e.target.closest('[data-main-view]'), edit=e.target.closest('[data-main-edit]'), del=e.target.closest('[data-main-delete]');
+    if(view){const m=state.mains.find(m=>m.id===Number(view.dataset.mainView));if(m) showDetails(m.name, [['Budget month',m.month],['Category',m.category || 'No category'],['Monthly budget',money(m.budget)],['Actual spent',money(m.spent)],['Budget remaining',money(m.budget-m.spent)],['Sub Balances',String(state.subs.filter(s=>s.mainBalanceId===m.id).length)]]);}
+    if(edit){const m=state.mains.find(m=>m.id===Number(edit.dataset.mainEdit));openModal('main',m);}
+    if(del){const m=state.mains.find(m=>m.id===Number(del.dataset.mainDelete));if(confirm(`Delete Main Balance "${m.name}"? This action cannot be undone.`)){state.mains=state.mains.filter(x=>x.id!==m.id);state.subs=state.subs.filter(s=>s.mainBalanceId!==m.id);refreshSubMonthFilter();refreshMain();refreshSubs();}}
+  });
+  $('createSub').onclick=()=>{if(!state.mains.length){alert('Create a Main Balance with a month and year first. Then you can add Sub Balances to it.');return;}openModal('sub');};
+  $('searchSub').addEventListener('input',refreshSubs);
+  $('subMonthFilter').addEventListener('change',refreshSubs);
+  document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t===tab));
+    $('mainPanel').classList.toggle('active',tab.dataset.tab==='main');
+    $('subPanel').classList.toggle('active',tab.dataset.tab==='sub');
+  }));
+  $('subCards').addEventListener('click',e=>{
+    const view=e.target.closest('[data-view]'), edit=e.target.closest('[data-edit]'), del=e.target.closest('[data-delete]');
+    if(view){const s=state.subs.find(s=>s.id===Number(view.dataset.view));if(s) showDetails(s.name, [['Date',formatDate(s.date)],['Main Balance',getMainBalance(s.mainBalanceId)?.name || 'Missing Main Balance'],['Budget month',getSubMonth(s) || 'Not set'],['Optional budget',s.budget===null?'Not set':money(s.budget)],['Actual spending',money(s.spent)],['Remaining budget',s.budget===null?'No budget set':money(s.budget-s.spent)]]);}
+    if(edit){const s=state.subs.find(s=>s.id===Number(edit.dataset.edit));openModal('sub',s);}
+    if(del){const s=state.subs.find(s=>s.id===Number(del.dataset.delete));if(confirm(`Delete "${s.name}"? This action cannot be undone.`)){state.subs=state.subs.filter(x=>x.id!==s.id);refreshSubs();refreshMain();}}
+  });
+  refreshSubMonthFilter(); refreshMain(); refreshSubs();
+})();
+</script>
+</body>
+</html>

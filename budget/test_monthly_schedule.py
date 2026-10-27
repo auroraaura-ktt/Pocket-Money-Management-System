@@ -20,6 +20,7 @@ from budget.models import (
     DailyExpense,
     PocketUser,
     ReportEmailLog,
+    SubBalance,
 )
 from budget.services.category_service import create_default_period_categories
 from budget.services.monthly_schedule_service import (
@@ -129,6 +130,39 @@ class MonthlyScheduleTests(TestCase):
                 budget_month=self.november, report_type=NO_ESTIMATE_FIRST_HALF
             ).exists()
         )
+
+    def test_schedule_b_separates_direct_and_sub_balance_totals(self):
+        direct_category = self.november.categories.get(period_index=1)
+        sub_balance = SubBalance.objects.create(
+            budget_month=self.november,
+            name="November Travel",
+            balance_amount=Decimal("50000"),
+        )
+        sub_category = BudgetCategory.objects.create(
+            budget_month=self.november,
+            sub_balance=sub_balance,
+            name="Sub Transport",
+            estimated_amount=Decimal("0"),
+        )
+        self._add_spending(direct_category, 5, "30000")
+        DailyExpense.objects.create(
+            budget_month=self.november,
+            sub_balance=sub_balance,
+            category=sub_category,
+            expense_date=date(2026, 11, 6),
+            amount=Decimal("15000"),
+        )
+
+        send_no_estimate_overview(today=date(2026, 11, 16))
+
+        html = mail.outbox[0].alternatives[0][0]
+        self.assertIn("Main Balance — Direct Actual Spending", html)
+        self.assertIn("Sub-Balance Actual Spending", html)
+        self.assertIn("Combined Actual Spending", html)
+        self.assertIn("November Travel", html)
+        self.assertIn("30,000 MMK", html)
+        self.assertIn("15,000 MMK", html)
+        self.assertIn("45,000 MMK", html)
 
     def test_schedule_b_excludes_spending_after_day_15(self):
         no_est = self.november.categories.get(period_index=1)
