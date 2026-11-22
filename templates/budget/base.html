@@ -7,6 +7,7 @@
     <title>{% block title %}Pocket Money Management System{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'css/pmms.css' %}">
+    {% block page_styles %}{% endblock %}
     <script>
         tailwind.config = {
             theme: {
@@ -35,7 +36,9 @@
                 <span class="account-greeting">Hi, {{ request.user.username }}</span>
                 {% if request.user.is_staff %}
                 <a href="{% url 'budget:admin_dashboard' %}" class="admin-link {% if request.resolver_match.url_name == 'admin_dashboard' %}active{% endif %}">Admin</a>
+                <a href="{% url 'budget:admin_audit_history' %}" class="pmms-action-link">All Audit History</a>
                 {% endif %}
+                <a href="{% url 'budget:audit_history' %}" class="pmms-action-link">My Audit History</a>
                 <a href="{% url 'budget:change_password' %}" class="pmms-action-link">Change Password</a>
                 <a href="{% url 'budget:logout' %}" class="pmms-action-link">Logout</a>
             {% else %}
@@ -95,6 +98,83 @@
 </div>
     <script>
         (function () {
+            document.querySelectorAll("[data-add-entry]").forEach(function (button) {
+                const type = button.dataset.addEntry;
+                const rows = document.getElementById(type + "-extra-entry-rows");
+                const payload = document.getElementById(
+                    type === "main" ? "id_extra_entries" : "id_extra_allocations"
+                );
+                if (!rows || !payload) return;
+
+                let items = [];
+                try {
+                    const submitted = JSON.parse(payload.value || "[]");
+                    if (Array.isArray(submitted)) {
+                        items = submitted.filter(function (item) {
+                            return item && typeof item === "object";
+                        }).map(function (item) {
+                            return {
+                                category: item.category == null ? "" : String(item.category),
+                                amount: item.amount == null ? "" : String(item.amount)
+                            };
+                        });
+                    }
+                } catch (error) {
+                    items = [];
+                }
+
+                const sync = function () {
+                    payload.value = JSON.stringify(items);
+                };
+                const render = function () {
+                    rows.replaceChildren();
+                    items.forEach(function (item, index) {
+                        const row = document.createElement("div");
+                        row.className = "grid grid-cols-[1fr_1fr_auto] gap-3 mb-3";
+                        const category = document.createElement("input");
+                        category.type = "text";
+                        category.className = "w-full px-4 py-2.5 border border-gray-300 rounded-lg";
+                        category.placeholder = "Category";
+                        category.setAttribute("aria-label", "Category");
+                        category.value = item.category;
+                        category.addEventListener("input", function () {
+                            item.category = category.value;
+                            sync();
+                        });
+                        const amount = document.createElement("input");
+                        amount.type = "number";
+                        amount.min = type === "main" ? "0" : "1";
+                        amount.step = "1";
+                        amount.className = category.className;
+                        amount.placeholder = "Amount (MMK)";
+                        amount.setAttribute("aria-label", "Amount");
+                        amount.value = item.amount;
+                        amount.addEventListener("input", function () {
+                            item.amount = amount.value;
+                            sync();
+                        });
+                        const remove = document.createElement("button");
+                        remove.type = "button";
+                        remove.className = "text-red-600 hover:underline";
+                        remove.textContent = "Remove";
+                        remove.addEventListener("click", function () {
+                            items.splice(index, 1);
+                            sync();
+                            render();
+                        });
+                        row.append(category, amount, remove);
+                        rows.append(row);
+                    });
+                };
+
+                render();
+                button.addEventListener("click", function () {
+                    items.push({category: "", amount: ""});
+                    sync();
+                    render();
+                });
+            });
+
             const themeButton = document.querySelector(".pmms-theme-toggle");
             if (themeButton) {
                 themeButton.addEventListener("click", function () {
@@ -103,6 +183,17 @@
                     themeButton.textContent = dark ? String.fromCodePoint(0x263D) : String.fromCodePoint(0x263C);
                 });
             }
+
+            document.querySelectorAll(".js-loading-submit").forEach(function (form) {
+                form.addEventListener("submit", function () {
+                    const submitButton = form.querySelector('[type="submit"]');
+                    if (!submitButton || submitButton.disabled) {
+                        return;
+                    }
+                    submitButton.disabled = true;
+                    submitButton.textContent = submitButton.dataset.loadingText || "Sending...";
+                });
+            });
         }());
     </script>
 

@@ -10,6 +10,12 @@ urlpatterns = [
     path("", views.home, name="home"),
     path("dashboard/", views.dashboard, name="dashboard"),
     path("reports/", views.reports, name="reports"),
+    path("audit-history/", views.audit_history, name="audit_history"),
+    path(
+        "audit-history/all/",
+        views.admin_audit_history,
+        name="admin_audit_history",
+    ),
     path(
         "main-balances/<int:month_id>/",
         views.main_balance_detail,
@@ -26,6 +32,21 @@ urlpatterns = [
         name="delete_main_balance",
     ),
     path(
+        "main-balances/<int:month_id>/inputs/add/",
+        views.create_input_balance,
+        name="create_input_balance",
+    ),
+    path(
+        "input-balances/<int:input_balance_id>/edit/",
+        views.edit_input_balance,
+        name="edit_input_balance",
+    ),
+    path(
+        "input-balances/<int:input_balance_id>/delete/",
+        views.delete_input_balance,
+        name="delete_input_balance",
+    ),
+    path(
         "main-balances/<int:month_id>/sub-balances/add/",
         views.create_sub_balance,
         name="create_sub_balance",
@@ -39,6 +60,21 @@ urlpatterns = [
         "sub-balances/<int:sub_balance_id>/edit/",
         views.edit_sub_balance,
         name="edit_sub_balance",
+    ),
+    path(
+        "sub-balances/<int:sub_balance_id>/allocations/add/",
+        views.create_sub_balance_allocation,
+        name="create_sub_balance_allocation",
+    ),
+    path(
+        "sub-balance-allocations/<int:allocation_id>/edit/",
+        views.edit_sub_balance_allocation,
+        name="edit_sub_balance_allocation",
+    ),
+    path(
+        "sub-balance-allocations/<int:allocation_id>/delete/",
+        views.delete_sub_balance_allocation,
+        name="delete_sub_balance_allocation",
     ),
     path(
         "sub-balances/<int:sub_balance_id>/delete/",

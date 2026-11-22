@@ -1,21 +1,19 @@
-"""Django management command to create an initial admin account.
+"""Create an initial admin account with an explicitly configured password.
 
-Creates a superuser with configurable default credentials (username, email,
-password). Useful on first setup so the admin dashboard has a known login.
-
-Defaults can be overridden either through command-line options or the
-environment variables POCKET_ADMIN_USERNAME / POCKET_ADMIN_EMAIL /
-POCKET_ADMIN_PASSWORD (for example on a fresh Vercel deploy).
+Username and email have convenience defaults; the password must come from the
+POCKET_ADMIN_PASSWORD environment variable or the --password option.
 """
 
 import os
 
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.management.base import BaseCommand, CommandError
 
 DEFAULT_USERNAME = os.getenv("POCKET_ADMIN_USERNAME", "admin")
 DEFAULT_EMAIL = os.getenv("POCKET_ADMIN_EMAIL", "admin@example.com")
-DEFAULT_PASSWORD = os.getenv("POCKET_ADMIN_PASSWORD", "admin12345")
+DEFAULT_PASSWORD = os.getenv("POCKET_ADMIN_PASSWORD")
 
 
 class Command(BaseCommand):
@@ -24,7 +22,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--username", default=DEFAULT_USERNAME)
         parser.add_argument("--email", default=DEFAULT_EMAIL)
-        parser.add_argument("--password", default=DEFAULT_PASSWORD)
+        parser.add_argument(
+            "--password",
+            default=DEFAULT_PASSWORD,
+            help="Admin password (prefer POCKET_ADMIN_PASSWORD from a secret store).",
+        )
         parser.add_argument(
             "--reset-password",
             action="store_true",
@@ -36,6 +38,19 @@ class Command(BaseCommand):
         username = options["username"]
         email = options["email"]
         password = options["password"]
+        if not password:
+            raise CommandError(
+                "Set POCKET_ADMIN_PASSWORD or provide --password; no default "
+                "admin password is configured."
+            )
+
+        try:
+            validate_password(password, user=User(username=username, email=email))
+        except ValidationError as exc:
+            raise CommandError(
+                "Admin password does not meet the configured password policy: "
+                + "; ".join(exc.messages)
+            ) from exc
 
         admin = User.objects.filter(username=username).first()
 
@@ -71,4 +86,4 @@ class Command(BaseCommand):
                 )
             )
 
-        self.stdout.write("You can now log in at /admin-login/ with these credentials.")
+        self.stdout.write("Admin account is ready; sign in at /admin-login/.")

@@ -1,0 +1,26 @@
+{% extends "budget/base.html" %}
+{% load static %}
+{% block title %}All Audit History - Pocket Money{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{% static 'css/audit.css' %}?v=1">{% endblock %}
+{% block content %}
+<main class="audit-page audit-admin-page">
+  <header class="audit-page-heading">
+    <div><span class="audit-eyebrow">SYSTEM ACTIVITY</span><h1>All-User Audit History</h1><p>Review real balance and spending changes across accounts.</p></div>
+    <a href="{{ request.path }}" class="audit-refresh-button">&#8635; Refresh</a>
+  </header>
+  <section class="audit-admin-summary"><strong>{{ page_obj.paginator.count }} recorded events</strong><span>Staff access is checked on the server for every request.</span></section>
+  <form method="get" class="audit-filters">
+    <div class="audit-filter-field"><label for="audit-user">User</label><select id="audit-user" name="user"><option value="">All users</option>{% for user in users %}<option value="{{ user.id }}" {% if selected_user == user.id|stringformat:"s" %}selected{% endif %}>{{ user.username }}</option>{% endfor %}</select></div>
+    <div class="audit-filter-field"><label for="audit-role">Role</label><select id="audit-role" name="role"><option value="">All roles</option>{% for value,label in roles %}<option value="{{ value }}" {% if selected_role == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="audit-filter-field"><label for="audit-action">Action</label><select id="audit-action" name="action"><option value="">All actions</option>{% for value,label in actions %}<option value="{{ value }}" {% if selected_action == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="audit-filter-field"><label for="audit-date-from">From</label><input id="audit-date-from" type="date" name="date_from" value="{{ date_from }}"></div>
+    <div class="audit-filter-field"><label for="audit-date-to">To</label><input id="audit-date-to" type="date" name="date_to" value="{{ date_to }}"></div>
+    <div class="audit-filter-field"><label for="audit-main-balance">Main Balance name or ID</label><input id="audit-main-balance" name="main_balance" value="{{ selected_main_balance }}"></div>
+    <div class="audit-filter-field"><label for="audit-money-entry">Money Entry ID</label><input id="audit-money-entry" inputmode="numeric" name="money_entry" value="{{ selected_money_entry }}"></div>
+    <div class="audit-filter-field"><label for="audit-sub-balance">Sub-Balance ID</label><input id="audit-sub-balance" inputmode="numeric" name="sub_balance" value="{{ selected_sub_balance }}"></div>
+    <div class="audit-filter-actions"><button type="submit">Apply filters</button><a href="{{ request.path }}">Clear filters</a></div>
+  </form>
+  <div class="audit-list-heading"><div><h2>Activity feed</h2><p>Newest changes are shown first.</p></div><span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span></div>
+  {% include "budget/_audit_event_list.html" %}
+</main>
+{% endblock %}

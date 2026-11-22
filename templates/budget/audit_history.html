@@ -1,0 +1,30 @@
+{% extends "budget/base.html" %}
+{% load static %}
+{% block title %}My Audit History - Pocket Money{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{% static 'css/audit.css' %}?v=1">{% endblock %}
+{% block content %}
+<main class="audit-page" data-audit-live>
+  <header class="audit-page-heading">
+    <div><span class="audit-eyebrow"><span aria-hidden="true">&#9673;</span> YOUR MONEY ACTIVITY</span><h1>My Audit History</h1><p>A clear, time-ordered record of changes to your balances and spending.</p></div>
+    <div class="audit-live-controls"><span class="audit-live-indicator"><i></i> Live activity</span><button type="button" id="audit-refresh-toggle" aria-pressed="true">Auto-refresh on</button><a href="{{ request.path }}" class="audit-refresh-button" aria-label="Refresh audit history">&#8635; Refresh now</a></div>
+  </header>
+  <section class="audit-overview" aria-label="Audit history summary"><div><span class="audit-overview-icon">&#128203;</span><p>Recorded actions</p><strong>{{ page_obj.paginator.count }}</strong></div><div><span class="audit-overview-icon">&#128197;</span><p>Showing page</p><strong>{{ page_obj.number }} <small>of {{ page_obj.paginator.num_pages|default:1 }}</small></strong></div><div class="audit-overview-note"><strong>Always up to date</strong><span>New activity appears at the top. This page checks for updates every 30 seconds.</span></div></section>
+  <div class="audit-list-heading"><div><h2>Recent activity</h2><p>Newest changes are shown first.</p></div><span>{{ page_obj.paginator.count }} event{{ page_obj.paginator.count|pluralize }}</span></div>
+  {% include "budget/_audit_event_list.html" %}
+</main>
+<script>
+    (function () {
+        const toggle = document.getElementById("audit-refresh-toggle");
+        if (!toggle) return;
+        let active = true;
+        toggle.addEventListener("click", function () {
+            active = !active;
+            toggle.setAttribute("aria-pressed", String(active));
+            toggle.textContent = active ? "Auto-refresh on" : "Auto-refresh paused";
+        });
+        window.setInterval(function () {
+            if (active && document.visibilityState === "visible") window.location.reload();
+        }, 30000);
+    })();
+</script>
+{% endblock %}

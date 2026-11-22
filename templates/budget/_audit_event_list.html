@@ -1,0 +1,42 @@
+<div class="audit-timeline">
+{% load currency_tags %}
+{% for event in page_obj %}
+  <article class="audit-event-card">
+    <div class="audit-event-marker" aria-hidden="true"><span>{% if event.object_type == 'authentication' %}&#128100;{% elif event.object_type == 'daily_expense' %}&#8599;{% elif event.object_type == 'main_balance' %}&#9639;{% elif event.object_type == 'sub_balance' %}&#8644;{% else %}&#9673;{% endif %}</span></div>
+    <div class="audit-event-content">
+      <div class="audit-event-topline">
+        <div><span class="audit-action-tag audit-action-{{ event.action }}">{{ event.get_action_display }}</span><time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:"j M Y · g:i A" }}</time></div>
+        <span class="audit-role-tag">{{ event.actor_role|title }} activity</span>
+      </div>
+      <h2>{{ event.object_label|default:event.get_object_type_display }}</h2>
+      <p class="audit-event-summary">{{ event.get_object_type_display }} <span>·</span> Record #{{ event.object_id }}</p>
+      <div class="audit-event-facts">
+        {% if event.main_balance_name %}<span><small>Main Balance</small><strong>{{ event.main_balance_name }}</strong><em>{{ event.month_label }}{% if event.main_balance_id %} · #{{ event.main_balance_id }}{% endif %}</em></span>{% endif %}
+        {% if event.money_entry_id %}<span><small>Money Entry</small><strong>{{ event.money_entry_category }}</strong><em>#{{ event.money_entry_id }}{% if event.money_entry_amount != None %} · {{ event.money_entry_amount|mmk }}{% endif %}</em></span>{% endif %}
+        {% if event.sub_balance_id %}<span><small>Sub-Balance</small><strong>{{ event.sub_balance_name }}</strong><em>#{{ event.sub_balance_id }}{% if event.sub_balance_amount != None %} · {{ event.sub_balance_amount|mmk }}{% endif %}</em></span>{% endif %}
+        {% if event.object_type == 'daily_expense' %}<span><small>Expense</small><strong>{{ event.after.category|default:event.before.category }}</strong><em>{{ event.after.date|default:event.before.date }} · {{ event.after.amount|default:event.before.amount|mmk }}</em></span><span><small>Recorded in</small><strong>{{ event.after.balance|default:event.before.balance }}</strong></span>{% endif %}
+      </div>
+      {% if event.before_display or event.after_display %}
+      <details class="audit-change-details">
+        <summary>View change details</summary>
+        <div class="audit-change-grid">
+          {% if event.before_display %}<section><h3>Before</h3><dl>{% for item in event.before_display %}<div><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>{% endfor %}</dl></section>{% endif %}
+          {% if event.after_display %}<section><h3>After</h3><dl>{% for item in event.after_display %}<div><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>{% endfor %}</dl></section>{% endif %}
+        </div>
+      </details>
+      {% endif %}
+      {% if event.object_type == 'authentication' %}<p class="audit-actor-note">Account: {{ event.actor_name }}{% if event.owner_email %} ({{ event.owner_email }}){% endif %}</p>{% elif event.actor_role == 'admin' %}<p class="audit-actor-note">Changed by {{ event.actor_name }} for {{ event.owner_name }}{% if event.owner_email %} ({{ event.owner_email }}){% endif %}</p>{% endif %}
+    </div>
+  </article>
+{% empty %}
+  <div class="audit-empty-state"><span aria-hidden="true">&#128203;</span><h2>No activity yet</h2><p>Logins, logouts, and changes to your Main Balances, money entries, Sub-Balances, and expenses will appear here as they happen.</p></div>
+{% endfor %}
+</div>
+
+{% if page_obj.has_other_pages %}
+<nav class="audit-pagination" aria-label="Audit history pages">
+  {% if page_obj.has_previous %}<a href="?{% if page_query %}{{ page_query }}&{% endif %}page={{ page_obj.previous_page_number }}">← Previous</a>{% else %}<span></span>{% endif %}
+  <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} <small>· {{ page_obj.paginator.count }} events</small></span>
+  {% if page_obj.has_next %}<a href="?{% if page_query %}{{ page_query }}&{% endif %}page={{ page_obj.next_page_number }}">Next →</a>{% endif %}
+</nav>
+{% endif %}

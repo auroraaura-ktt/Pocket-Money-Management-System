@@ -1,12 +1,16 @@
 {% extends "budget/base.html" %}
 {% load currency_tags %}
+{% load currency_tags %}
 {% block title %}{{ sub_balance.name }} - Pocket Money{% endblock %}
 {% block content %}
 <div class="max-w-5xl mx-auto p-4 md:p-8">
   <p class="text-sm mb-4"><a class="text-blue-600 hover:underline" href="{% url 'budget:main_balance_detail' main_balance.id %}">← {{ main_balance.name|default:main_balance.month_label }}</a></p>
   <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
     <div class="flex flex-col md:flex-row md:justify-between gap-4">
-      <div><p class="text-sm text-gray-500">Sub Balance · {{ main_balance.month_label }}</p><h1 class="text-3xl font-bold">{{ sub_balance.name }}</h1><p class="text-sm text-gray-500 mt-2">Date {{ sub_balance.balance_date|date:"F j, Y" }} · Created {{ sub_balance.created_at|date:"F j, Y" }} · 15-day report due {{ report_due_date|date:"F j, Y" }}</p></div>
+      <div><p class="text-sm text-gray-500">Sub Balance · {{ main_balance.month_label }}</p><h1 class="text-3xl font-bold">{{ sub_balance.name }}</h1><p class="text-sm text-gray-500 mt-2">Date {{ sub_balance.balance_date|date:"F j, Y" }} · Created {{ sub_balance.created_at|date:"F j, Y" }} · 15-day report due {{ report_due_date|date:"F j, Y" }}</p>
+        {% if sub_balance.allocation_mode == "inherit_main_total" %}<p class="mt-2">Allocation source: Main Balance total ({{ main_balance.total_money|mmk }})</p>
+        {% elif sub_balance.source_input_balance %}<p class="mt-2">Linked Money Entry: {{ sub_balance.source_input_balance.category }} — {{ sub_balance.source_input_balance.amount|mmk }}</p>{% endif %}
+      </div>
       <div class="flex flex-wrap gap-2"><a class="bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 active:bg-blue-800 text-white font-semibold px-4 py-2 rounded-lg transition-colors" href="{% url 'budget:edit_sub_balance' sub_balance.id %}">Edit</a>
         <form method="post" action="{% url 'budget:delete_sub_balance' sub_balance.id %}">{% csrf_token %}<button class="bg-red-600 hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 active:bg-red-800 text-white font-semibold px-4 py-2 rounded-lg transition-colors" onclick="return confirm('Delete {{ sub_balance.name|escapejs }} under {{ main_balance.name|escapejs }}, created {{ sub_balance.created_at|date:"F j, Y" }}? Associated financial records and scheduled reports may prevent deletion.');">Delete</button></form>
       </div>
@@ -16,6 +20,26 @@
       <div class="rounded-lg bg-gray-50 p-4"><p class="text-sm text-gray-500">Sub-Balance Actual Spending</p><p class="text-xl font-semibold">{{ total_actual_spent|mmk }}</p><p class="text-xs text-gray-500">{{ transactions|length }} transactions</p></div>
       <div class="rounded-lg bg-blue-50 p-4"><p class="text-sm text-gray-500">Remaining</p><p class="text-xl font-semibold">{% if remaining_balance is not None %}{{ remaining_balance|mmk }}{% else %}Not set{% endif %}</p></div>
     </div>
+    <section class="mt-7 border-t pt-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3"><h2 class="text-lg font-semibold">Allocated Money</h2>
+        {% if sub_balance.allocation_mode != "inherit_main_total" %}<a class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-2 rounded-lg" href="{% url 'budget:create_sub_balance_allocation' sub_balance.id %}">+ Add Allocated Money</a>{% endif %}
+      </div>
+      {% if sub_balance.allocation_mode == "inherit_main_total" %}
+      <div class="rounded-lg bg-blue-50 p-4"><p class="text-sm text-gray-600">Inherited from Main Balance Total</p><p class="text-xl font-semibold">{{ main_balance.total_money|mmk }}</p></div>
+      {% else %}
+      <div class="divide-y">
+        {% for allocation in allocations %}
+        <div class="flex flex-wrap items-center justify-between gap-3 py-3">
+          <p><span class="font-medium">{{ allocation.category }}</span><strong class="ml-3">{{ allocation.amount|mmk }}</strong></p>
+          <div class="flex items-center gap-4"><a class="text-sm text-blue-700 hover:underline" href="{% url 'budget:edit_sub_balance_allocation' allocation.id %}">Edit</a>
+            <form method="post" action="{% url 'budget:delete_sub_balance_allocation' allocation.id %}">{% csrf_token %}<button type="submit" class="text-sm text-red-600 hover:underline" onclick="return confirm('Delete this allocated money entry?');">Delete</button></form>
+          </div>
+        </div>
+        {% empty %}<p class="py-3 text-sm text-gray-500">No allocated money yet.</p>{% endfor %}
+      </div>
+      {% if allocations %}<p class="flex justify-between border-t pt-3 font-semibold"><span>Total Allocated</span><span>{{ sub_balance.allocated_amount|mmk }}</span></p>{% endif %}
+      {% endif %}
+    </section>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-7">
       <section><h2 class="text-lg font-semibold mb-3">Categories</h2>
         <form method="post" class="space-y-3 mb-4">

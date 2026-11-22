@@ -13,10 +13,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me-in-production")
 
-DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "yes")
-
 # True when the app runs inside a serverless (read-only) Vercel container.
 ON_VERCEL = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
+
+DEBUG = os.getenv("DEBUG", "False" if ON_VERCEL else "True").lower() in ("true", "1", "yes")
 
 ALLOWED_HOSTS = [
     host.strip().replace("https://", "").replace("http://", "").rstrip("/")
@@ -159,6 +159,15 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -167,10 +176,12 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 EMAIL_PORT = int(os.getenv("SMTP_PORT", "587"))
 EMAIL_HOST_USER = os.getenv("SMTP_USER", "")
-EMAIL_HOST_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+EMAIL_HOST_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+if EMAIL_HOST.lower() == "smtp.gmail.com":
+    EMAIL_HOST_PASSWORD = "".join(EMAIL_HOST_PASSWORD.split())
 EMAIL_USE_TLS = True
 DEFAULT_FROM_EMAIL = os.getenv("SMTP_FROM", EMAIL_HOST_USER)
-EMAIL_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Pocket Management System")
+EMAIL_FROM_NAME = "Pocket Money Management System"
 
 MONTH_NAMES = [
     "",

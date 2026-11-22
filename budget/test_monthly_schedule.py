@@ -18,6 +18,7 @@ from budget.models import (
     BudgetCategory,
     BudgetMonth,
     DailyExpense,
+    InputBalance,
     PocketUser,
     ReportEmailLog,
     SubBalance,
@@ -78,6 +79,25 @@ class MonthlyScheduleTests(TestCase):
             ).exists()
         )
 
+    def test_schedule_a_email_uses_all_monthly_input_balances(self):
+        InputBalance.objects.create(
+            budget_month=self.october,
+            category="Freelance",
+            amount=Decimal("125000"),
+        )
+        BudgetMonth.objects.create(
+            user=self.user,
+            year=2026,
+            month=10,
+            total_money=Decimal("250000"),
+        )
+
+        results = send_previous_month_report(today=date(2026, 11, 1))
+
+        self.assertIn("October 2026 — monthly previous", results["sent"])
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("875,000 MMK", mail.outbox[0].alternatives[0][0])
+
     def test_schedule_a_not_sent_on_other_days(self):
         # The dispatcher only runs Schedule A on the 1st.
         results = process_monthly_schedules(today=date(2026, 11, 5))
@@ -121,6 +141,9 @@ class MonthlyScheduleTests(TestCase):
         # HTML is attached as an alternative; check the message payload.
         alt_html = mail.outbox[0].alternatives[0][0]
         self.assertIn(no_est.name, alt_html)
+        self.assertIn("Transactions Included in This Report", alt_html)
+        self.assertIn("test", alt_html)
+        self.assertIn('src="cid:pmms-logo"', alt_html)
         self.assertNotIn(with_est.name, alt_html)
         self.assertIn("November 2026", mail.outbox[0].subject)
         self.assertEqual(mail.outbox[0].to, ["test@example.com"])
@@ -130,6 +153,29 @@ class MonthlyScheduleTests(TestCase):
                 budget_month=self.november, report_type=NO_ESTIMATE_FIRST_HALF
             ).exists()
         )
+
+    def test_schedule_b_groups_multiple_main_balances_into_one_monthly_email(self):
+        extra_balance = BudgetMonth.objects.create(
+            user=self.user,
+            year=2026,
+            month=11,
+            total_money=Decimal("100000"),
+        )
+        self._add_spending(
+            self.november.categories.get(period_index=1), 5, "30000"
+        )
+        DailyExpense.objects.create(
+            budget_month=extra_balance,
+            category=extra_balance.categories.get(period_index=1),
+            expense_date=date(2026, 11, 6),
+            amount=Decimal("20000"),
+        )
+
+        results = send_no_estimate_overview(today=date(2026, 11, 16))
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("50,000 MMK", mail.outbox[0].alternatives[0][0])
+        self.assertEqual(len(results["sent"]), 1)
 
     def test_schedule_b_separates_direct_and_sub_balance_totals(self):
         direct_category = self.november.categories.get(period_index=1)

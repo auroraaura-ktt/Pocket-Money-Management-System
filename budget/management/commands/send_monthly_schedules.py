@@ -26,8 +26,13 @@ class Command(BaseCommand):
 
         for item in results["sent"]:
             self.stdout.write(self.style.SUCCESS(f"Sent: {item}"))
+        failed = set(results.get("failed", []))
         for item in results["skipped"]:
+            if item in failed:
+                continue
             self.stdout.write(self.style.WARNING(f"Skipped: {item}"))
+        for item in results.get("failed", []):
+            self.stdout.write(self.style.ERROR(f"Failed: {item}"))
 
-        if not results["sent"] and not results["skipped"]:
+        if not results["sent"] and not results["skipped"] and not failed:
             self.stdout.write(self.style.WARNING("Nothing to do today."))

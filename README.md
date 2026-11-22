@@ -36,6 +36,20 @@ python manage.py runserver
 
 Open **http://127.0.0.1:8000/** in your browser.
 
+## Vercel Deployment
+
+The project includes `vercel.json` and a serverless Django entrypoint at `api/index.py`.
+
+Set these environment variables in the Vercel project:
+
+- `SECRET_KEY` — A strong random production secret.
+- `DATABASE_URL` — A hosted PostgreSQL connection URL. SQLite is only a temporary local fallback on Vercel.
+- `ALLOWED_HOSTS` — Optional comma-separated custom domains.
+- `CSRF_TRUSTED_ORIGINS` — Optional comma-separated origins, for example `https://your-app.example.com`.
+- `SMTP_*` — Optional email configuration.
+
+Deploy from the repository root. Vercel uses `python manage.py collectstatic --noinput` to build static assets and routes requests to the Django WSGI application.
+
 ## Usage Flow
 
 1. **Dashboard → Setup** — Register a user (name + email) and create a monthly budget with total money

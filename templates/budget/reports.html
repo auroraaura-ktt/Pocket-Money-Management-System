@@ -1,135 +1,218 @@
 {% extends "budget/base.html" %}
-{% load currency_tags %}
+{% load static currency_tags %}
 
 {% block title %}Reports - Pocket Money{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{% static 'css/reports.css' %}?v=5">{% endblock %}
 
 {% block content %}
-<div class="max-w-7xl mx-auto p-4 md:p-8">
-    <h1 class="text-3xl font-bold text-gray-900 mb-2">Reports</h1>
-    <p class="text-gray-500 mb-8">Compare Main Balance direct category budgets with actual spending, separately from Sub-Balances.</p>
+<div class="reports-page">
+    <header class="reports-heading">
+        <div>
+            <span class="reports-eyebrow"><span aria-hidden="true">&#9639;</span> MONEY INSIGHTS</span>
+            <h1>Reports</h1>
+            <p>Bring your monthly money picture together. Compare planned budgets, balances, and actual spending.</p>
+        </div>
+        {% if report_dataset %}<div class="report-month-chip"><span aria-hidden="true">&#128197;</span> {{ report_dataset.month }}</div>
+        {% elif selected_month_key %}<div class="report-month-chip"><span aria-hidden="true">&#128197;</span> {{ selected_month_key }}</div>{% endif %}
+    </header>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-        <form method="get" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
-                {{ form.budget_month }}
-            </div>
-            <div>
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-lg transition w-full md:w-auto">
-                    Generate Report
-                </button>
+    <section class="report-builder" aria-labelledby="report-builder-title">
+        <div class="report-section-heading">
+            <div class="report-section-icon" aria-hidden="true">&#9881;</div>
+            <div><h2 id="report-builder-title">Build your report</h2><p>Choose a month and the Main Balances you want to include.</p></div>
+        </div>
+
+        <form method="post" id="monthly-report-form" class="report-selection-form">
+            {% csrf_token %}
+            <label for="report-month" class="report-month-label">1. Choose a month</label>
+            <select id="report-month" name="month" class="report-month-select" required>
+                <option value="">Select a month...</option>
+                {% for item in months %}
+                <option value="{{ item.key }}" {% if item.key == selected_month_key %}selected{% endif %}>{{ item.label }}</option>
+                {% endfor %}
+            </select>
+            <fieldset>
+                <legend>2. Choose Main Balances <span class="report-legend-note">Select one or more</span></legend>
+                {% if all_month_balances %}
+                <label class="report-select-all"><input type="checkbox" id="select-all-balances"><span class="report-checkmark"></span><span>Select all Main Balances</span></label>
+                <div class="report-balance-list">
+                    {% for main_balance in all_month_balances %}
+                    <label class="report-balance-option" data-month-key="{{ main_balance.year|stringformat:'04d' }}-{{ main_balance.month|stringformat:'02d' }}">
+                        <input type="checkbox" name="main_balance_ids" value="{{ main_balance.id }}" class="report-balance-checkbox" {% if main_balance.id|stringformat:"s" in selected_balance_ids %}checked{% endif %}>
+                        <span class="report-checkmark"></span>
+                        <span class="report-balance-option-copy"><strong>{{ main_balance.name|default:main_balance.month_label }}</strong><small>{{ main_balance.month_label }}</small></span>
+                    </label>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="report-empty-inline"><span aria-hidden="true">&#9432;</span> No Main Balances are available yet.</div>
+                {% endif %}
+            </fieldset>
+            <p id="balance-selection-status" class="report-selection-status" aria-live="polite"></p>
+            <div class="report-actions-block">
+                <p>3. Generate your report</p>
+                <div class="report-actions">
+                    <button type="submit" name="action" value="web" class="report-button report-button-primary report-action"><span aria-hidden="true">&#9635;</span> Generate report</button>
+                    <button type="submit" name="action" value="pdf" formtarget="_blank" class="report-button report-button-light report-action"><span aria-hidden="true">&#128196;</span> View PDF</button>
+                    <button type="submit" name="action" value="pdf_download" class="report-button report-button-light report-action"><span aria-hidden="true">&#8681;</span> Download PDF</button>
+                    <button type="submit" name="action" value="csv" class="report-button report-button-green report-action"><span aria-hidden="true">&#8645;</span> Export CSV</button>
+                    <button type="submit" name="action" value="xlsx" class="report-button report-button-light report-action"><span aria-hidden="true">&#8645;</span> Export Excel</button>
+                </div>
             </div>
         </form>
-    </div>
+    </section>
+
+    {% if not report_dataset and not report %}
+    <section class="report-empty-state">
+        <div class="report-empty-art" aria-hidden="true"><span>&#128202;</span><i></i><b></b><em></em></div>
+        <h2>No report generated yet</h2>
+        <p>Choose a budget month, select your Main Balances, and view or export your report.</p>
+    </section>
+    {% endif %}
+
+    {% if report_dataset %}
+    <section class="report-output" aria-labelledby="monthly-report-title">
+        <div class="report-output-heading">
+            <div><span class="reports-eyebrow">MONTHLY SUMMARY</span><h2 id="monthly-report-title">PMMS Monthly Financial Report</h2><p>Month: {{ report_dataset.month }} <span>·</span> {{ report_dataset.total_main_balances }} Main Balance{{ report_dataset.total_main_balances|pluralize }} <span>·</span> {{ report_dataset.total_transactions }} transactions</p></div>
+            <div class="report-summary-stamp"><span aria-hidden="true">&#10003;</span> Report ready</div>
+        </div>
+
+        <div class="report-metric-grid">
+            <article class="report-metric report-metric-blue"><span class="report-metric-icon" aria-hidden="true">&#36;</span><p>Total Money</p><strong>{{ report_dataset.totals.money|mmk }}</strong><small>Available across selected balances</small></article>
+            <article class="report-metric report-metric-violet"><span class="report-metric-icon" aria-hidden="true">&#9673;</span><p>Total Predicted Amount</p><strong>{{ report_dataset.totals.predicted|mmk }}</strong><small>Planned budget estimates</small></article>
+            <article class="report-metric report-metric-amber"><span class="report-metric-icon" aria-hidden="true">&#8644;</span><p>Total Sub Balance</p><strong>{{ report_dataset.totals.sub_balance|mmk }}</strong><small>Money allocated to sub-balances</small></article>
+            <article class="report-metric report-metric-rose"><span class="report-metric-icon" aria-hidden="true">&#8599;</span><p>Main Balance Spending</p><strong>{{ report_dataset.totals.expense|mmk }}</strong><small>{{ report_dataset.main_transaction_count }} transactions</small></article>
+            <article class="report-metric report-metric-violet"><span class="report-metric-icon" aria-hidden="true">&#8645;</span><p>Sub-Balance Spending</p><strong>{{ report_dataset.totals.sub_expense|mmk }}</strong><small>{{ report_dataset.sub_transaction_count }} transactions</small></article>
+            <article class="report-metric report-metric-blue"><span class="report-metric-icon" aria-hidden="true">&#8721;</span><p>Combined Spending</p><strong>{{ report_dataset.totals.combined_expense|mmk }}</strong><small>{{ report_dataset.total_transactions }} transactions in total</small></article>
+            <article class="report-metric report-metric-green"><span class="report-metric-icon" aria-hidden="true">&#10003;</span><p>Main Balance Remaining</p><strong>{{ report_dataset.totals.remaining|mmk }}</strong><small>Available money less direct Main Balance spending</small></article>
+        </div>
+
+        {% for item in report_dataset.main_balances %}
+        <article class="report-balance-card">
+            <div class="report-balance-header"><div><span class="report-card-kicker">MAIN BALANCE {{ forloop.counter|stringformat:"02d" }}</span><h3>{{ item.display_name }}</h3><p>{{ item.main_balance.month_label }} <span>·</span> ID {{ item.main_balance.id }}</p></div><div class="report-balance-total"><small>Available money</small><strong>{{ item.total_money|mmk }}</strong></div></div>
+            <div class="report-balance-stats"><div><span>Predicted amount</span><strong>{{ item.predicted_amount|mmk }}</strong></div><div><span>Main Balance spent · {{ item.main_transaction_count }} transactions</span><strong>{{ item.total_expense|mmk }}</strong></div><div><span>Sub-Balances spent · {{ item.sub_transaction_count }} transactions</span><strong>{{ item.sub_actual_spent|mmk }}</strong></div><div><span>Combined spending</span><strong>{{ item.combined_expense|mmk }}</strong></div><div><span>Main Balance remaining after direct spending</span><strong class="{% if item.remaining_balance < 0 %}report-negative{% else %}report-positive{% endif %}">{{ item.remaining_balance|mmk }}</strong></div></div>
+
+            <details class="report-detail" open><summary>Money entries <span>Total money: {{ item.total_money|mmk }}</span></summary>
+                {% if item.money_entries %}<div class="report-table-wrap"><table class="report-table"><thead><tr><th>Category</th><th class="report-number">Amount</th></tr></thead><tbody>{% for entry in item.money_entries %}<tr><td>{{ entry.category|default:"Income" }}</td><td class="report-number">{{ entry.amount|mmk }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="report-no-data">No money entries recorded.</p>{% endif %}
+            </details>
+            <details class="report-detail"><summary>Income by category <span>{{ item.total_money|mmk }} total income</span></summary>
+                {% if item.income_by_category %}<div class="report-table-wrap"><table class="report-table"><thead><tr><th>Income category</th><th class="report-number">Total income</th><th class="report-number">Entries</th></tr></thead><tbody>{% for category in item.income_by_category %}<tr><td>{{ category.category_name }}</td><td class="report-number">{{ category.amount|mmk }}</td><td class="report-number">{{ category.entry_count }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="report-no-data">No income entries recorded.</p>{% endif %}
+            </details>
+            <details class="report-detail"><summary>Sub Balances <span>Total sub balance: {{ item.total_sub_balance|mmk }}</span></summary>
+                {% if item.sub_balances %}<div class="report-table-wrap"><table class="report-table"><thead><tr><th>Name</th><th class="report-number">Allocated amount</th></tr></thead><tbody>{% for sub_balance in item.sub_balances %}<tr><td>{{ sub_balance.name }}</td><td class="report-number">{{ sub_balance.allocated_amount|mmk }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="report-no-data">No sub balances yet.</p>{% endif %}
+            </details>
+            <details class="report-detail"><summary>Main Balance transactions <span>{{ item.main_transaction_count }} transactions · {{ item.total_expense|mmk }} spent</span></summary>
+                {% if item.main_transactions %}<div class="report-table-wrap"><table class="report-table report-transaction-table"><thead><tr><th>Date</th><th>Category</th><th>Note</th><th class="report-number">Spent</th></tr></thead><tbody>{% for transaction in item.main_transactions %}<tr><td>{{ transaction.date }}</td><td>{{ transaction.category_name }}</td><td>{{ transaction.note|default:"—" }}</td><td class="report-number">{{ transaction.amount|mmk }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="report-no-data">No direct Main Balance transactions recorded.</p>{% endif %}
+            </details>
+            <details class="report-detail"><summary>Sub-Balance transactions <span>{{ item.sub_transaction_count }} transactions · {{ item.sub_actual_spent|mmk }} spent</span></summary>
+                {% for sub_balance in item.sub_balance_details %}<div class="report-sub-transaction-group"><div class="report-sub-transaction-heading"><strong>{{ sub_balance.name }}</strong><span>{{ sub_balance.transaction_count }} transactions</span><span>Allocated {{ sub_balance.allocated_amount|mmk }}</span><span>Spent {{ sub_balance.total_actual_spent|mmk }}</span><strong class="{% if sub_balance.remaining_balance < 0 %}report-negative{% else %}report-positive{% endif %}">Remaining {{ sub_balance.remaining_balance|mmk }}</strong></div>
+                    {% if sub_balance.balance_categories %}<div class="report-table-wrap"><table class="report-table"><thead><tr><th>Category</th><th>Balance basis</th><th class="report-number">Allocated</th><th class="report-number">Spent</th><th class="report-number">Remaining</th></tr></thead><tbody>{% for category in sub_balance.balance_categories %}<tr><td>{{ category.name }}</td><td>{{ category.basis }}</td><td class="report-number">{{ category.allocated_amount|mmk }}</td><td class="report-number">{{ category.actual_amount|mmk }}</td><td class="report-number {% if category.remaining_balance < 0 %}report-negative{% else %}report-positive{% endif %}">{{ category.remaining_balance|mmk }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+                    {% if sub_balance.transactions %}<div class="report-table-wrap"><table class="report-table report-transaction-table"><thead><tr><th>Date</th><th>Category</th><th>Note</th><th class="report-number">Spent</th></tr></thead><tbody>{% for transaction in sub_balance.transactions %}<tr><td>{{ transaction.date }}</td><td>{{ transaction.category_name }}</td><td>{{ transaction.note|default:"—" }}</td><td class="report-number">{{ transaction.amount|mmk }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="report-no-data">No transactions recorded for this Sub-Balance.</p>{% endif %}
+                </div>{% empty %}<p class="report-no-data">No Sub-Balances yet.</p>{% endfor %}
+            </details>
+        </article>
+        {% endfor %}
+
+        <div class="report-grand-total"><div><span>MONTHLY SUMMARY</span><h3>Across all selected Main Balances</h3></div><div><small>Main Balance spending</small><strong>{{ report_dataset.totals.expense|mmk }}</strong></div><div><small>Sub-Balance spending</small><strong>{{ report_dataset.totals.sub_expense|mmk }}</strong></div><div><small>Combined spending · {{ report_dataset.total_transactions }} transactions</small><strong>{{ report_dataset.totals.combined_expense|mmk }}</strong></div><div><small>Main Balance remaining</small><strong>{{ report_dataset.totals.remaining|mmk }}</strong></div></div>
+        <form method="post" class="report-email-form js-loading-submit">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="email_report">
+            <input type="hidden" name="month" value="{{ selected_month_key }}">
+            {% for item in report_dataset.main_balances %}<input type="hidden" name="main_balance_ids" value="{{ item.main_balance.id }}">{% endfor %}
+            <div><strong>Send this report to your email</strong><span>Includes transaction details for all selected Main and Sub-Balances.</span></div>
+            <button type="submit" data-loading-text="Sending report..." class="report-button report-button-green">&#9993; Email full report</button>
+        </form>
+    </section>
+    {% endif %}
 
     {% if report %}
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <p class="text-sm text-gray-500 mb-1">Total Money (Available)</p>
-            <p class="text-2xl font-bold text-gray-900">{{ report.total_money|mmk }}</p>
+    <section class="report-legacy" aria-labelledby="legacy-report-title">
+        <div class="report-output-heading"><div><span class="reports-eyebrow">MONTHLY OVERVIEW</span><h2 id="legacy-report-title">Main Balance — Direct Actual Spending</h2><p>{{ report.main_balance_name }} <span>·</span> {{ selected_month.month_label }}</p></div></div>
+        <div class="report-metric-grid report-metric-grid-legacy">
+            <article class="report-metric report-metric-blue"><span class="report-metric-icon" aria-hidden="true">&#36;</span><p>Total Money (Available)</p><strong>{{ report.total_money|mmk }}</strong></article>
+            <article class="report-metric report-metric-rose"><span class="report-metric-icon" aria-hidden="true">&#8599;</span><p>Main Balance — Direct Actual Spending</p><strong>{{ report.direct_actual_spent|mmk }}</strong><small>{{ report.main_transaction_count }} transactions</small></article>
+            <article class="report-metric report-metric-violet"><span class="report-metric-icon" aria-hidden="true">&#8645;</span><p>Combined Actual Spending</p><strong>{{ report.combined_actual_spent|mmk }}</strong></article>
+            <article class="report-metric report-metric-blue"><span class="report-metric-icon" aria-hidden="true">&#8595;</span><p>Remaining Balance</p><strong>{{ report.remaining_balance|mmk }}</strong><small>Available − direct Main Balance spending</small></article>
+            <article class="report-metric report-metric-amber"><span class="report-metric-icon" aria-hidden="true">&#9673;</span><p>Adjusted Available Money</p><strong>{{ report.adjusted_total_money|mmk }}</strong>{% if report.zero_spend_periods %}<small>No spend: {{ report.zero_spend_periods|join:", " }}</small>{% endif %}</article>
+            <article class="report-metric {% if report.overall_status == 'surplus' %}report-metric-green{% else %}report-metric-rose{% endif %}"><span class="report-metric-icon" aria-hidden="true">&#10003;</span><p>Monthly {{ report.overall_status|title }}</p><strong>{{ report.overall_difference|mmk }}</strong><small>Adjusted money − direct Main Balance spending</small></article>
         </div>
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <p class="text-sm text-gray-500 mb-1">Main Balance — Direct Actual Spending</p>
-            <p class="text-2xl font-bold text-gray-900">{{ report.direct_actual_spent|mmk }}</p>
-            <p class="text-xs text-gray-500 mt-1">{{ report.main_transaction_count }} transactions</p>
-        </div>
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <p class="text-sm text-gray-500 mb-1">Combined Actual Spending</p>
-            <p class="text-2xl font-bold text-gray-900">{{ report.combined_actual_spent|mmk }}</p>
-        </div>
-        <div class="bg-white rounded-xl shadow-sm border p-5 {% if report.remaining_balance >= 0 %}border-blue-200 bg-blue-50{% else %}border-red-200 bg-red-50{% endif %}">
-            <p class="text-sm text-gray-500 mb-1">Remaining Balance</p>
-            <p class="text-2xl font-bold {% if report.remaining_balance >= 0 %}text-blue-600{% else %}text-red-600{% endif %}">{{ report.remaining_balance|mmk }}</p>
-            <p class="text-xs text-gray-500 mt-1">Available − direct Main Balance spending</p>
-        </div>
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <p class="text-sm text-gray-500 mb-1">Adjusted Available Money</p>
-            <p class="text-2xl font-bold text-gray-900">{{ report.adjusted_total_money|mmk }}</p>
-            {% if report.zero_spend_periods %}
-            <p class="text-xs text-amber-600 mt-1">No spend: {{ report.zero_spend_periods|join:", " }}</p>
-            {% endif %}
-        </div>
-        <div class="bg-white rounded-xl shadow-sm border p-5 {% if report.overall_status == 'surplus' %}border-green-200 bg-green-50{% else %}border-red-200 bg-red-50{% endif %}">
-            <p class="text-sm text-gray-500 mb-1">Monthly {{ report.overall_status|title }}</p>
-            <p class="text-2xl font-bold {% if report.overall_status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ report.overall_difference|mmk }}</p>
-            <p class="text-xs text-gray-500 mt-1">Adjusted money − direct Main Balance spending</p>
-        </div>
-    </div>
 
-    {% if report.sub_balance_rows %}
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-      <h2 class="text-xl font-semibold text-gray-900 mb-4">Sub-Balance Actual Spending · {{ report.main_balance_name }} · {{ selected_month.month_label }}</h2>
-      {% for item in report.sub_balance_rows %}
-      <div class="border-t py-4"><h3 class="font-semibold">{{ item.name }}</h3>
-        <p class="text-sm text-gray-600">Allocated: {{ item.balance_amount|mmk }} · Actual: {{ item.total_actual_spent|mmk }} · {{ item.transaction_count }} transactions · Remaining: {{ item.remaining_balance|mmk }}</p>
-        <div class="overflow-x-auto mt-3"><table class="w-full text-sm"><thead><tr class="bg-gray-100"><th class="text-left px-3 py-2">Category</th><th class="text-right px-3 py-2">Budget</th><th class="text-right px-3 py-2">Actual</th></tr></thead><tbody>
-          {% for category in item.categories %}<tr class="border-b"><td class="px-3 py-2">{{ category.name }}</td><td class="text-right px-3 py-2">{{ category.budget_amount|mmk }}</td><td class="text-right px-3 py-2">{{ category.actual_amount|mmk }}</td></tr>{% empty %}<tr><td colspan="3" class="px-3 py-3 text-sm text-gray-500">No category spending recorded.</td></tr>{% endfor %}
-        </tbody></table></div>
-        {% if item.transactions %}
-        <details class="mt-3"><summary class="cursor-pointer text-sm text-blue-700">View transactions</summary>
-          <div class="overflow-x-auto mt-2"><table class="w-full text-sm"><thead><tr class="bg-gray-50"><th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Category</th><th class="text-left px-3 py-2">Note</th><th class="text-right px-3 py-2">Amount</th></tr></thead>
-          <tbody>{% for transaction in item.transactions %}<tr class="border-t"><td class="px-3 py-2">{{ transaction.date }}</td><td class="px-3 py-2">{{ transaction.category_name }}</td><td class="px-3 py-2">{{ transaction.note|default:"No note" }}</td><td class="px-3 py-2 text-right">{{ transaction.amount|mmk }}</td></tr>{% endfor %}</tbody></table></div>
-        </details>
-        {% else %}<p class="text-sm text-gray-500 mt-3">No Sub-Balance transactions recorded for this period.</p>{% endif %}
-      </div>{% empty %}<p class="text-sm text-gray-500">No Sub-Balances exist for this Main Balance period.</p>{% endfor %}
-      <p class="text-xs text-gray-500">Combined Actual Spending is direct Main Balance spending plus these Sub-Balance amounts, each transaction counted once.</p>
-    </div>
-    {% else %}
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8"><h2 class="text-xl font-semibold text-gray-900 mb-2">Sub-Balance Actual Spending</h2><p class="text-sm text-gray-500">No Sub-Balances exist for this Main Balance period.</p></div>
-    {% endif %}
+        <section class="report-balance-card report-sub-balances"><div class="report-section-heading"><div class="report-section-icon" aria-hidden="true">&#8644;</div><div><h2>Sub-Balance Actual Spending</h2><p>{{ report.main_balance_name }} <span>·</span> {{ selected_month.month_label }}</p></div></div>
+            {% if report.sub_balance_rows %}{% for item in report.sub_balance_rows %}<article class="report-sub-balance-row"><div class="report-balance-header"><div><h3>{{ item.name }}</h3><p>Allocated: {{ item.balance_amount|mmk }} <span>·</span> Actual: {{ item.total_actual_spent|mmk }} <span>·</span> {{ item.transaction_count }} transactions</p></div><div class="report-balance-total"><small>Remaining</small><strong>{{ item.remaining_balance|mmk }}</strong></div></div>
+                <div class="report-table-wrap"><table class="report-table"><thead><tr><th>Category</th><th class="report-number">Budget</th><th class="report-number">Actual</th></tr></thead><tbody>{% for category in item.categories %}<tr><td>{{ category.name }}</td><td class="report-number">{{ category.budget_amount|mmk }}</td><td class="report-number">{{ category.actual_amount|mmk }}</td></tr>{% empty %}<tr><td colspan="3" class="report-no-data">No category spending recorded.</td></tr>{% endfor %}</tbody></table></div>
+                {% if item.balance_categories %}<h4>Category balances</h4><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Category</th><th>Balance basis</th><th class="report-number">Allocated</th><th class="report-number">Spent</th><th class="report-number">Remaining</th></tr></thead><tbody>{% for category in item.balance_categories %}<tr><td>{{ category.name }}</td><td>{{ category.basis }}</td><td class="report-number">{{ category.allocated_amount|mmk }}</td><td class="report-number">{{ category.actual_amount|mmk }}</td><td class="report-number {% if category.remaining_balance < 0 %}report-negative{% else %}report-positive{% endif %}">{{ category.remaining_balance|mmk }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+                {% if item.transactions %}<details class="report-detail"><summary>View transactions <span>{{ item.transaction_count }} entries</span></summary><div class="report-table-wrap"><table class="report-table report-transaction-table"><thead><tr><th>Date</th><th>Category</th><th>Note</th><th class="report-number">Amount</th></tr></thead><tbody>{% for transaction in item.transactions %}<tr><td>{{ transaction.date }}</td><td>{{ transaction.category_name }}</td><td>{{ transaction.note|default:"No note" }}</td><td class="report-number">{{ transaction.amount|mmk }}</td></tr>{% endfor %}</tbody></table></div></details>{% else %}<p class="report-no-data">No Sub-Balance transactions recorded for this period.</p>{% endif %}
+            </article>{% endfor %}{% else %}<p class="report-no-data">No Sub-Balances exist for this Main Balance period.</p>{% endif %}
+            <p class="report-footnote">Combined Actual Spending is direct Main Balance spending plus these Sub-Balance amounts, each transaction counted once.</p>
+        </section>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-        <h2 class="text-xl font-semibold text-gray-900 mb-4">Category Comparison (Budget vs Actual)</h2>
-        <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead>
-                    <tr class="bg-gray-100">
-                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Category</th>
-                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Budget Estimate</th>
-                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Main Balance Direct Actual</th>
-                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Status</th>
-                        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Difference</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in report.period_reports %}
-                    <tr class="border-b border-gray-100">
-                        <td class="px-4 py-3 font-medium">
-                            {{ item.category_name }}
-                            {% if item.start_day is not None %}
-                            <span class="block text-xs text-gray-500">Day {{ item.start_day }} – {{ item.end_day }}</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-4 py-3 text-right">{{ item.budget_amount|mmk }}</td>
-                        <td class="px-4 py-3 text-right">{{ item.actual_amount|mmk }}</td>
-                        <td class="px-4 py-3 text-right font-semibold {% if item.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ item.status|title }}</td>
-                        <td class="px-4 py-3 text-right font-semibold {% if item.status == 'surplus' %}text-green-600{% else %}text-red-600{% endif %}">{{ item.difference|mmk }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+        <section class="report-balance-card"><div class="report-section-heading"><div class="report-section-icon" aria-hidden="true">&#36;</div><div><h2>Income by Category</h2><p>{{ report.main_balance_name }} <span>·</span> {{ selected_month.month_label }}</p></div></div>
+            <div class="report-table-wrap"><table class="report-table"><thead><tr><th>Income category</th><th class="report-number">Total income</th><th class="report-number">Entries</th></tr></thead><tbody>{% for category in report.income_by_category %}<tr><td>{{ category.category_name }}</td><td class="report-number">{{ category.amount|mmk }}</td><td class="report-number">{{ category.entry_count }}</td></tr>{% empty %}<tr><td colspan="3" class="report-no-data">No income entries recorded.</td></tr>{% endfor %}</tbody></table></div>
+        </section>
 
-    {% if selected_month %}
-    <div class="flex justify-end">
-        <form method="post" class="js-loading-submit">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="email">
-            <input type="hidden" name="budget_month" value="{{ selected_month.id }}">
-        <button type="submit" data-loading-text="Sending report..." class="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-6 py-3 rounded-lg transition">
-                📧 Send Total Report to {{ selected_month.user.email }}
-            </button>
-        </form>
-    </div>
-    {% endif %}
+        <section class="report-balance-card"><div class="report-section-heading"><div class="report-section-icon" aria-hidden="true">&#8645;</div><div><h2>Category Comparison</h2><p>Budget estimate compared with direct actual spending</p></div></div>
+            <div class="report-table-wrap"><table class="report-table"><thead><tr><th>Category</th><th class="report-number">Budget Estimate</th><th class="report-number">Main Balance Direct Actual</th><th>Status</th><th class="report-number">Difference</th></tr></thead><tbody>{% for item in report.period_reports %}<tr><td><strong>{{ item.category_name }}</strong>{% if item.start_day is not None %}<small class="report-cell-note">Day {{ item.start_day }} – {{ item.end_day }}</small>{% endif %}</td><td class="report-number">{{ item.budget_amount|mmk }}</td><td class="report-number">{{ item.actual_amount|mmk }}</td><td><span class="report-status {% if item.status == 'surplus' %}report-status-positive{% else %}report-status-negative{% endif %}">{{ item.status|title }}</span></td><td class="report-number {% if item.status == 'surplus' %}report-positive{% else %}report-negative{% endif %}">{{ item.difference|mmk }}</td></tr>{% empty %}<tr><td colspan="5" class="report-no-data">No category budget periods are available.</td></tr>{% endfor %}</tbody></table></div>
+        </section>
 
-    {% else %}
-    <div class="text-center py-16">
-        <div class="text-6xl mb-4">📊</div>
-        <h3 class="text-xl font-semibold text-gray-700 mb-2">No Report Generated</h3>
-        <p class="text-gray-500">Select a budget month and click Generate Report.</p>
-    </div>
+        {% if selected_month %}<form method="post" class="report-email-form js-loading-submit">{% csrf_token %}<input type="hidden" name="action" value="email"><input type="hidden" name="budget_month" value="{{ selected_month.id }}"><div><strong>Want a copy in your inbox?</strong><span>Send this report to {{ selected_month.user.email }}</span></div><button type="submit" data-loading-text="Sending report..." class="report-button report-button-green">&#9993; Send Total Report to {{ selected_month.user.email }}</button></form>{% endif %}
+    </section>
     {% endif %}
 </div>
+
+<script>
+    (function () {
+        const balanceBoxes = Array.from(document.querySelectorAll(".report-balance-checkbox"));
+        const actions = document.querySelectorAll(".report-action");
+        const selectAll = document.getElementById("select-all-balances");
+        const monthSelect = document.getElementById("report-month");
+        const balanceOptions = Array.from(document.querySelectorAll(".report-balance-option"));
+        const selectionStatus = document.getElementById("balance-selection-status");
+
+        function updateMonthBalances() {
+            const selectedMonth = monthSelect ? monthSelect.value : "";
+            balanceOptions.forEach((option) => {
+                const visible = option.dataset.monthKey === selectedMonth;
+                option.hidden = !visible;
+                if (!visible) {
+                    const checkbox = option.querySelector("input");
+                    if (checkbox) checkbox.checked = false;
+                }
+            });
+            updateReportActions();
+        }
+
+        function updateReportActions() {
+            const visibleBoxes = balanceBoxes.filter((checkbox) => !checkbox.closest(".report-balance-option").hidden);
+            const selectedCount = visibleBoxes.filter((checkbox) => checkbox.checked).length;
+            const hasSelection = Boolean(monthSelect && monthSelect.value && selectedCount);
+            actions.forEach((button) => { button.disabled = !hasSelection; });
+            if (selectAll) {
+                selectAll.disabled = !monthSelect || !monthSelect.value || visibleBoxes.length === 0;
+                selectAll.checked = visibleBoxes.length > 0 && selectedCount === visibleBoxes.length;
+                selectAll.indeterminate = selectedCount > 0 && !selectAll.checked;
+            }
+            if (selectionStatus) {
+                selectionStatus.textContent = monthSelect && monthSelect.value
+                    ? selectedCount + " Main Balance" + (selectedCount === 1 ? "" : "s") + " selected"
+                    : "Choose a month to see its Main Balances.";
+            }
+        }
+
+        balanceBoxes.forEach((checkbox) => checkbox.addEventListener("change", updateReportActions));
+        if (selectAll) {
+            selectAll.addEventListener("change", function () {
+                balanceBoxes.forEach((checkbox) => {
+                    if (!checkbox.closest(".report-balance-option").hidden) {
+                        checkbox.checked = selectAll.checked;
+                    }
+                });
+                updateReportActions();
+            });
+        }
+        if (monthSelect) {
+            monthSelect.addEventListener("change", updateMonthBalances);
+        }
+        updateMonthBalances();
+    })();
+</script>
 {% endblock %}

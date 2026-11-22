@@ -9,16 +9,20 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.db import transaction
 
 from budget.periods import PERIOD_DEFINITIONS, period_index_for_day
+from budget.services.allocation_service import available_amount_for_entry
 
 from .models import (
     Balance,
     BudgetCategory,
     BudgetMonth,
+    InputBalance,
     DailyExpense,
     PocketUser,
     SubBalance,
+    SubBalanceAllocation,
 )
 
 INPUT_CLASS = (
@@ -97,20 +101,27 @@ class UserRegistrationForm(UserCreationForm):
         self.fields["password1"].label = "Password"
         self.fields["password2"].label = "Confirm password"
 
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        if PocketUser.objects.filter(email__iexact=email).exists():
+            raise ValidationError(
+                "This email is already associated with a Pocket Money profile. "
+                "Please log in or contact support."
+            )
+        return email
+
+    @transaction.atomic
     def save(self, commit=True):
-        user = super().save(commit=commit)
-        # Link/create the PocketUser that owns this account's budget data and
-        # ensure it has at least one default sub-balance list.
+        user = super().save(commit=False)
         email = self.cleaned_data.get("email", "").strip().lower()
-        pocket, created = PocketUser.objects.get_or_create(
-            email=email,
-            defaults={"name": user.username, "auth_user": user},
-        )
-        if not created:
-            pocket.name = user.username
-            pocket.auth_user = user
-            pocket.save(update_fields=["name", "auth_user"])
-        if not pocket.balances.exists():
+        if commit:
+            user.save()
+            self.save_m2m()
+            pocket = PocketUser.objects.create(
+                name=user.username,
+                email=email,
+                auth_user=user,
+            )
             Balance.objects.create(user=pocket, name="Main Wallet")
         return user
 
@@ -191,12 +202,7 @@ class BalanceForm(forms.ModelForm):
 
 
 class BudgetMonthForm(forms.ModelForm):
-    """Create a budget month with a total money amount.
-
-    Category budget estimates are set separately in the Budget tab
-    via the PeriodBudgetForm (which handles all categories and sums
-    them into the total money).
-    """
+    """Create one Main Balance for a reporting month."""
 
     month = forms.TypedChoiceField(
         choices=[],
@@ -220,9 +226,19 @@ class BudgetMonthForm(forms.ModelForm):
         widget=forms.Select(attrs={"class": INPUT_CLASS}),
     )
 
+    category = forms.CharField(
+        label="Category",
+        required=True,
+        max_length=100,
+        strip=True,
+        widget=forms.TextInput(
+            attrs={"class": INPUT_CLASS, "placeholder": "e.g. Salary"}
+        ),
+    )
+
     class Meta:
         model = BudgetMonth
-        fields = ["name", "balance", "year", "month", "total_money"]
+        fields = ["name", "balance", "year", "month", "category", "total_money"]
         widgets = {
             "year": forms.NumberInput(
                 attrs={"class": INPUT_CLASS, "min": 2020, "max": 2100}
@@ -238,13 +254,19 @@ class BudgetMonthForm(forms.ModelForm):
         }
 
     total_money = forms.DecimalField(
+        required=True,
         min_value=1,
         max_digits=12,
         decimal_places=0,
-        widget=forms.NumberInput(
-            attrs={"class": INPUT_CLASS, "min": 1, "step": 1, "required": True}
-        ),
+        error_messages={
+            "required": "Please enter an amount.",
+            "invalid": "Please enter a valid amount.",
+            "min_value": "Amount must be greater than 0 MMK.",
+        },
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": 1, "step": 1}),
     )
+
+    extra_entries = forms.JSONField(required=False, widget=forms.HiddenInput())
 
     def __init__(self, *args, **kwargs):
         balance_qs = kwargs.pop("balance_qs", None)
@@ -275,12 +297,42 @@ class BudgetMonthForm(forms.ModelForm):
             raise forms.ValidationError("Enter a year from 2020 through 2100.")
         return year
 
+    def clean(self):
+        cleaned = super().clean()
+        extra_entries = cleaned.get("extra_entries") or []
+        if not isinstance(extra_entries, list):
+            self.add_error("extra_entries", "Enter valid additional money entries.")
+            extra_entries = []
+        normalized_entries = []
+        for item in extra_entries:
+            if isinstance(item, dict) and not str(item.get("category", "")).strip() and not str(item.get("amount", "")).strip():
+                continue
+            if not isinstance(item, dict) or not str(item.get("category", "")).strip():
+                self.add_error("extra_entries", "Each additional entry needs a category and amount.")
+                break
+            try:
+                amount = Decimal(str(item.get("amount", "")))
+                if amount < 0 or amount != amount.to_integral_value() or amount > Decimal("999999999999"):
+                    raise ValueError
+                normalized_entries.append({"category": str(item["category"]).strip(), "amount": amount})
+            except Exception:
+                self.add_error("extra_entries", "Enter a valid non-negative amount for each additional entry.")
+                break
+        cleaned["extra_entries"] = normalized_entries
+        if not cleaned.get("category") or cleaned.get("total_money") is None:
+            self.add_error(
+                None,
+                "Please add at least one money entry with a category and amount.",
+            )
+        return cleaned
+
     def save(self, commit=True):
         from budget.services.category_service import create_default_period_categories
 
         budget_month = super().save(commit=commit)
         # Create the three default period categories with zero amounts.
-        create_default_period_categories(budget_month)
+        if commit:
+            create_default_period_categories(budget_month)
         return budget_month
 
 
@@ -317,24 +369,17 @@ class CategoryForm(forms.ModelForm):
 
 
 class MainBalanceUpdateForm(forms.ModelForm):
-    """Edit a monthly Main Balance without allowing its period to move."""
+    """Edit one Main Balance without changing its reporting month."""
 
     class Meta:
         model = BudgetMonth
-        fields = ["name", "total_money"]
+        fields = ["name", "category"]
         widgets = {
             "name": forms.TextInput(attrs={"class": INPUT_CLASS}),
-            "total_money": forms.NumberInput(
-                attrs={"class": INPUT_CLASS, "min": 1, "step": 1}
+            "category": forms.TextInput(
+                attrs={"class": INPUT_CLASS, "placeholder": "e.g. Salary"}
             ),
         }
-
-    total_money = forms.DecimalField(
-        min_value=1,
-        max_digits=12,
-        decimal_places=0,
-        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": 1, "step": 1}),
-    )
 
     def clean_name(self):
         value = (self.cleaned_data.get("name") or "").strip()
@@ -343,12 +388,72 @@ class MainBalanceUpdateForm(forms.ModelForm):
         return value
 
 
+class InputBalanceForm(forms.ModelForm):
+    """Create or edit one categorized money-in record."""
+
+    category = forms.CharField(
+        label="Category",
+        max_length=100,
+        strip=True,
+        error_messages={"required": "Please enter a category."},
+        widget=forms.TextInput(
+            attrs={"class": INPUT_CLASS, "placeholder": "e.g. Salary"}
+        ),
+    )
+
+    class Meta:
+        model = InputBalance
+        fields = ["category", "amount", "note"]
+        widgets = {
+            "amount": forms.NumberInput(
+                attrs={"class": INPUT_CLASS, "min": 0, "step": 1}
+            ),
+            "note": forms.TextInput(
+                attrs={"class": INPUT_CLASS, "placeholder": "Optional note"}
+            ),
+        }
+
+    amount = forms.DecimalField(
+        min_value=0,
+        max_digits=12,
+        decimal_places=0,
+        error_messages={
+            "required": "Please enter an amount.",
+            "invalid": "Please enter a valid amount.",
+            "min_value": "Amount cannot be negative.",
+        },
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": 0, "step": 1}),
+    )
+
+
 class SubBalanceForm(forms.ModelForm):
     """Manage a named monthly child while preserving its parent and date."""
 
+    source_input_balance = forms.ModelChoiceField(
+        queryset=InputBalance.objects.none(),
+        required=False,
+        label="Allocated from Money Entry",
+        error_messages={
+            "required": "Please select the Money Entry this Sub Balance will use."
+        },
+        widget=forms.Select(
+            attrs={"class": INPUT_CLASS, "id": "sub-balance-source-entry"}
+        ),
+    )
+    allocation_mode = forms.ChoiceField(
+        choices=SubBalance.ALLOCATION_MODE_CHOICES,
+        initial=SubBalance.MANUAL_ALLOCATION,
+        required=False,
+        label="Allocation mode",
+        widget=forms.RadioSelect,
+    )
     balance_amount = forms.DecimalField(
         label="Opening Balance Amount (MMK)", required=False, min_value=0,
         max_digits=12, decimal_places=0,
+        error_messages={
+            "invalid": "Please enter a valid amount.",
+            "min_value": "Amount cannot be negative.",
+        },
         widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": 0, "step": 1}),
     )
     balance_date = forms.DateField(
@@ -358,19 +463,50 @@ class SubBalanceForm(forms.ModelForm):
             attrs={"class": INPUT_CLASS, "type": "date", "id": "sub-balance-date"}
         ),
     )
+    extra_allocations = forms.JSONField(required=False, widget=forms.HiddenInput())
 
     class Meta:
         model = SubBalance
-        fields = ["name", "balance_amount", "balance_date"]
+        fields = [
+            "name",
+            "allocation_mode",
+            "source_input_balance",
+            "balance_amount",
+            "balance_date",
+        ]
         widgets = {
             "name": forms.TextInput(attrs={"class": INPUT_CLASS}),
+            "allocation_mode": forms.RadioSelect(
+                attrs={"class": "text-blue-600 focus:ring-blue-500"}
+            ),
         }
 
     def __init__(self, *args, **kwargs):
         self.parent_month = kwargs.pop("parent_month", None)
         month_qs = kwargs.pop("month_qs", None)
+        input_balance_qs = kwargs.pop(
+            "input_balance_qs", InputBalance.objects.none()
+        )
         super().__init__(*args, **kwargs)
         self.fields["name"].max_length = 100
+        if not self.instance.pk:
+            self.fields["opening_balance_category"] = forms.CharField(
+                max_length=100,
+                required=False,
+                strip=True,
+                label="Opening balance category",
+                widget=forms.TextInput(
+                    attrs={
+                        "class": INPUT_CLASS,
+                        "placeholder": "e.g. Groceries",
+                    }
+                ),
+            )
+            field_order = list(self.fields)
+            field_order.remove("opening_balance_category")
+            field_order.insert(field_order.index("balance_amount"), "opening_balance_category")
+            self.order_fields(field_order)
+        self.fields["source_input_balance"].required = False
         if self.parent_month is None:
             self.fields["budget_month"] = forms.ModelChoiceField(
                 queryset=month_qs if month_qs is not None else BudgetMonth.objects.none(),
@@ -390,6 +526,20 @@ class SubBalanceForm(forms.ModelForm):
         else:
             selected_month = self.parent_month
 
+        if self.parent_month is not None:
+            input_balance_qs = input_balance_qs.filter(
+                budget_month=self.parent_month
+            )
+        self.fields["source_input_balance"].queryset = input_balance_qs.select_related(
+            "budget_month"
+        )
+        self.fields["source_input_balance"].label_from_instance = (
+            lambda entry: (
+                f"{entry.budget_month.name or entry.budget_month.month_label} · "
+                f"{entry.category or 'Uncategorized'} — {entry.amount:,.0f} MMK"
+            )
+        )
+
         if selected_month:
             date_attrs = self.fields["balance_date"].widget.attrs
             min_date = date(selected_month.year, selected_month.month, 1)
@@ -406,11 +556,102 @@ class SubBalanceForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        allocations = cleaned.get("extra_allocations") or []
+        if not isinstance(allocations, list):
+            self.add_error("extra_allocations", "Enter valid additional allocations.")
+            allocations = []
+        normalized_allocations = []
+        for item in allocations:
+            if isinstance(item, dict) and not str(item.get("category", "")).strip() and not str(item.get("amount", "")).strip():
+                continue
+            try:
+                if not isinstance(item, dict) or not str(item.get("category", "")).strip():
+                    raise ValueError
+                amount = Decimal(str(item.get("amount", "")))
+                if amount < 1 or amount != amount.to_integral_value() or amount > Decimal("999999999999"):
+                    raise ValueError
+                normalized_allocations.append({"category": str(item["category"]).strip(), "amount": amount})
+            except Exception:
+                self.add_error("extra_allocations", "Each allocation needs a category and positive whole amount.")
+                break
+        cleaned["extra_allocations"] = normalized_allocations
         balance_amount = cleaned.get("balance_amount")
         if balance_amount is None:
-            cleaned["balance_amount"] = Decimal("0")
+            if (
+                self.instance.pk
+                and cleaned.get("allocation_mode") == SubBalance.INHERIT_MAIN_TOTAL
+                and "balance_amount" not in self.data
+            ):
+                cleaned["balance_amount"] = self.instance.balance_amount
+            else:
+                cleaned["balance_amount"] = Decimal("0")
+        allocation_mode = (
+            cleaned.get("allocation_mode")
+            or getattr(self.instance, "allocation_mode", None)
+            or SubBalance.MANUAL_ALLOCATION
+        )
+        cleaned["allocation_mode"] = allocation_mode
+        opening_category = cleaned.get("opening_balance_category", "")
+        if opening_category and allocation_mode == SubBalance.INHERIT_MAIN_TOTAL:
+            self.add_error(
+                "opening_balance_category",
+                "An opening balance category requires Manual Allocation mode.",
+            )
+        elif opening_category:
+            if cleaned["balance_amount"] <= 0:
+                self.add_error(
+                    "opening_balance_category",
+                    "Enter a positive opening balance amount for this category.",
+                )
+            else:
+                normalized_allocations.insert(
+                    0,
+                    {
+                        "category": opening_category,
+                        "amount": cleaned["balance_amount"],
+                    },
+                )
+                cleaned["extra_allocations"] = normalized_allocations
+                cleaned["balance_amount"] = Decimal("0")
         budget_month = self.parent_month or cleaned.get("budget_month")
+        source_input_balance = cleaned.get("source_input_balance")
         balance_date = cleaned.get("balance_date")
+        if allocation_mode == SubBalance.INHERIT_MAIN_TOTAL:
+            cleaned["source_input_balance"] = None
+            source_input_balance = None
+        if (
+            source_input_balance
+            and budget_month
+            and source_input_balance.budget_month_id != budget_month.id
+        ):
+            self.add_error(
+                "source_input_balance",
+                "Choose a Money Entry from the selected Main Balance.",
+            )
+        if (
+            source_input_balance
+            and allocation_mode == SubBalance.MANUAL_ALLOCATION
+        ):
+            available = available_amount_for_entry(
+                source_input_balance,
+                exclude_sub_balance_id=self.instance.pk,
+            )
+            category_total = sum(
+                (item["amount"] for item in normalized_allocations),
+                Decimal("0"),
+            )
+            if cleaned["balance_amount"] + category_total > available:
+                error_field = (
+                    "balance_amount"
+                    if cleaned["balance_amount"] > available
+                    else "extra_allocations"
+                )
+                self.add_error(
+                    error_field,
+                    "The opening amount and category allocations cannot exceed "
+                    f"the available money for this entry. Available amount: "
+                    f"{available:,.0f} MMK.",
+                )
         if budget_month and balance_date and (
             balance_date.year != budget_month.year
             or balance_date.month != budget_month.month
@@ -423,6 +664,12 @@ class SubBalanceForm(forms.ModelForm):
 
     def clean_balance_amount(self):
         return self.cleaned_data.get("balance_amount") or Decimal("0")
+
+    def _post_clean(self):
+        budget_month = self.parent_month or self.cleaned_data.get("budget_month")
+        if budget_month is not None:
+            self.instance.budget_month = budget_month
+        super()._post_clean()
 
     def clean_name(self):
         value = (self.cleaned_data.get("name") or "").strip()
@@ -439,6 +686,12 @@ class SubBalanceForm(forms.ModelForm):
         )
         if commit:
             instance.save()
+            for item in self.cleaned_data.get("extra_allocations") or []:
+                SubBalanceAllocation.objects.create(
+                    sub_balance=instance,
+                    category=str(item["category"]).strip(),
+                    amount=Decimal(str(item["amount"])),
+                )
         return instance
 
 
@@ -601,6 +854,47 @@ class SubBalanceCategoryForm(forms.ModelForm):
         if commit:
             category.save()
         return category
+
+
+class SubBalanceAllocationForm(forms.ModelForm):
+    category = forms.CharField(
+        max_length=100,
+        strip=True,
+        error_messages={
+            "required": "Please enter a category for the allocated money."
+        },
+        widget=forms.TextInput(
+            attrs={"class": INPUT_CLASS, "placeholder": "e.g. Food"}
+        ),
+    )
+    amount = forms.DecimalField(
+        min_value=1,
+        max_digits=12,
+        decimal_places=0,
+        error_messages={
+            "required": "Please enter an allocated amount.",
+            "invalid": "Please enter a valid allocated amount.",
+            "min_value": "Allocated amount must be greater than 0 MMK.",
+        },
+        widget=forms.NumberInput(
+            attrs={"class": INPUT_CLASS, "min": 1, "step": 1}
+        ),
+    )
+
+    class Meta:
+        model = SubBalanceAllocation
+        fields = ["category", "amount"]
+
+    def __init__(self, *args, **kwargs):
+        self.sub_balance = kwargs.pop("sub_balance")
+        super().__init__(*args, **kwargs)
+
+    def save(self, commit=True, sub_balance=None):
+        allocation = super().save(commit=False)
+        allocation.sub_balance = sub_balance or self.sub_balance
+        if commit:
+            allocation.save()
+        return allocation
 
 
 class CustomCategoryBudgetForm(forms.Form):

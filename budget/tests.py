@@ -1,26 +1,220 @@
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+import csv
+import email.policy
+from io import BytesIO, StringIO
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core.cache import cache
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.core import mail
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils.formats import date_format
 from django.utils import timezone
 
 from budget.currency import format_mmk
 from budget.models import (
+    AuditEvent,
     Balance,
     BudgetCategory,
     BudgetMonth,
     DailyExpense,
+    InputBalance,
     PocketUser,
     ReportEmailLog,
     SubBalance,
+    SubBalanceAllocation,
 )
 from budget.services.automated_email_service import process_automated_emails
+from budget.services.allocation_service import available_amount_for_entry
 from budget.services.category_service import create_default_period_categories
 from budget.services.report_service import generate_monthly_report
 from budget.services.sub_balance_schedule_service import process_sub_balance_schedules
+
+
+class AutoEmailMiddlewareRetryTests(TestCase):
+    @patch(
+        "budget.services.automated_email_service.process_automated_emails",
+        return_value={"sent": [], "skipped": [], "failed": ["report email not sent"]},
+    )
+    def test_failed_automated_email_uses_short_retry_cache(self, _process):
+        from budget.middleware import (
+            CACHE_KEY,
+            FAILURE_RETRY_TTL,
+            AutoEmailMiddleware,
+        )
+
+        today = timezone.localdate()
+        cache_key = f"{CACHE_KEY}:{today.isoformat()}"
+        middleware = AutoEmailMiddleware(lambda request: None)
+        with patch.object(cache, "get", return_value=False), patch.object(
+            cache, "set"
+        ) as set_cache:
+            middleware._maybe_run_automated_emails()
+
+        set_cache.assert_called_once_with(cache_key, True, FAILURE_RETRY_TTL)
+
+
+class AuthenticationAuditTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="auth-audit-user",
+            email="auth-audit@example.com",
+            password="Passw0rd!x",
+        )
+        self.profile = PocketUser.objects.create(
+            name="Auth Audit User",
+            email=self.user.email,
+            auth_user=self.user,
+        )
+
+    def test_successful_login_is_recorded_with_timestamp_in_personal_history(self):
+        response = self.client.post(
+            reverse("budget:login"),
+            {"username": self.user.username, "password": "Passw0rd!x"},
+        )
+
+        self.assertRedirects(response, reverse("budget:dashboard"))
+        event = AuditEvent.objects.get(actor=self.user, action="user_login")
+        self.assertEqual(event.owner, self.profile)
+        self.assertEqual(event.object_type, "authentication")
+        self.assertEqual(event.after, {"status": "authenticated"})
+        self.assertTrue(timezone.is_aware(event.created_at))
+
+        history = self.client.get(reverse("budget:audit_history"))
+        self.assertContains(history, "User Login")
+        self.assertContains(history, "Auth Audit User logged in")
+        self.assertContains(
+            history, date_format(event.created_at, "j M Y · g:i A")
+        )
+
+    def test_logout_is_recorded_before_the_session_is_cleared(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("budget:logout"))
+
+        self.assertRedirects(response, reverse("budget:home"))
+        event = AuditEvent.objects.get(actor=self.user, action="user_logout")
+        self.assertEqual(event.owner, self.profile)
+        self.assertEqual(event.before, {"status": "authenticated"})
+        self.assertFalse(
+            AuditEvent.objects.filter(actor=self.user, action="user_login").exists()
+        )
+
+    def test_staff_login_is_recorded_without_a_pocket_user_profile(self):
+        staff_user = User.objects.create_user(
+            username="auth-audit-admin",
+            email="auth-audit-admin@example.com",
+            password="Passw0rd!x",
+            is_staff=True,
+        )
+
+        response = self.client.post(
+            reverse("budget:admin_login"),
+            {"username": staff_user.username, "password": "Passw0rd!x"},
+        )
+
+        self.assertRedirects(response, reverse("budget:admin_dashboard"))
+        event = AuditEvent.objects.get(actor=staff_user, action="user_login")
+        self.assertIsNone(event.owner)
+        self.assertEqual(event.owner_name, staff_user.username)
+        self.assertEqual(event.actor_role, "admin")
+
+    def test_failed_login_does_not_create_a_success_event(self):
+        response = self.client.post(
+            reverse("budget:login"),
+            {"username": self.user.username, "password": "incorrect"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(AuditEvent.objects.filter(actor=self.user).exists())
+
+
+class RegistrationSecurityTests(TestCase):
+    def setUp(self):
+        self.victim = User.objects.create_user(
+            username="profile-owner",
+            email="existing-profile@example.com",
+            password="Passw0rd!x",
+        )
+        self.profile = PocketUser.objects.create(
+            name="Profile Owner",
+            email=self.victim.email,
+            auth_user=self.victim,
+        )
+
+    def test_registration_cannot_claim_an_existing_profile_by_email(self):
+        response = self.client.post(
+            reverse("budget:register"),
+            {
+                "username": "attacker",
+                "email": self.victim.email.upper(),
+                "password1": "Strong!UniquePass9",
+                "password2": "Strong!UniquePass9",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "already associated with a Pocket Money profile")
+        self.assertFalse(User.objects.filter(username="attacker").exists())
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.auth_user, self.victim)
+
+    def test_existing_email_profile_is_not_auto_linked_on_dashboard(self):
+        attacker = User.objects.create_user(
+            username="unlinked-account",
+            email=self.victim.email,
+            password="Passw0rd!x",
+        )
+        self.client.force_login(attacker)
+        self.client.raise_request_exception = False
+
+        response = self.client.get(reverse("budget:dashboard"))
+
+        self.assertEqual(response.status_code, 403)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.auth_user, self.victim)
+
+
+class CreateAdminCommandSecurityTests(TestCase):
+    def test_admin_creation_requires_an_explicit_password(self):
+        with self.assertRaisesMessage(CommandError, "no default admin password"):
+            call_command(
+                "create_admin",
+                username="new-admin",
+                email="new-admin@example.com",
+                password="",
+            )
+
+        self.assertFalse(User.objects.filter(username="new-admin").exists())
+
+    def test_admin_creation_rejects_a_weak_password(self):
+        with self.assertRaisesMessage(CommandError, "does not meet"):
+            call_command(
+                "create_admin",
+                username="new-admin",
+                email="new-admin@example.com",
+                password="password",
+            )
+
+        self.assertFalse(User.objects.filter(username="new-admin").exists())
+
+    def test_admin_creation_accepts_a_strong_explicit_password(self):
+        call_command(
+            "create_admin",
+            username="new-admin",
+            email="new-admin@example.com",
+            password="U9!h6#Qm2vKx7$zP",
+            stdout=StringIO(),
+        )
+
+        admin = User.objects.get(username="new-admin")
+        self.assertTrue(admin.is_staff)
+        self.assertTrue(admin.is_superuser)
+        self.assertTrue(admin.check_password("U9!h6#Qm2vKx7$zP"))
 
 
 class DashboardBudgetAndExtraMoneyTests(TestCase):
@@ -82,25 +276,30 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
             SubBalance.objects.filter(budget_month=self.budget_month).exists()
         )
 
-    def test_creating_duplicate_user_month_opens_existing_record(self):
+    def test_creating_duplicate_user_month_creates_an_independent_balance(self):
         response = self.client.post(
             reverse("budget:dashboard"),
             {
                 "action": "create_budget",
                 "balance": self.balance.id,
                 "name": "August 2026 Main Balance",
+                "category": "Freelance",
                 "year": 2026,
                 "month": 8,
                 "total_money": 650000,
             },
         )
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("budget:main_balance_detail", args=[self.budget_month.id]))
+        new_month = BudgetMonth.objects.exclude(pk=self.budget_month.id).get()
         self.assertEqual(
-            BudgetMonth.objects.filter(user=self.user, year=2026, month=8).count(), 1
+            response.url, reverse("budget:main_balance_detail", args=[new_month.id])
+        )
+        self.assertEqual(
+            BudgetMonth.objects.filter(user=self.user, year=2026, month=8).count(), 2
         )
         self.budget_month.refresh_from_db()
         self.assertEqual(self.budget_month.total_money, Decimal("500000"))
+        self.assertEqual(new_month.total_money, Decimal("650000"))
 
     def test_create_main_balance_for_same_month_in_another_year(self):
         response = self.client.post(
@@ -108,6 +307,7 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
             {
                 "action": "create_budget",
                 "name": "August 2027",
+                "category": "Salary",
                 "balance": self.balance.id,
                 "year": 2027,
                 "month": 8,
@@ -130,7 +330,8 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.assertEqual(response.status_code, 302)
 
     def test_main_balance_delete_cascades_to_children(self):
-        SubBalance.objects.create(
+        entry = self.budget_month.input_balances.first()
+        sub_balance = SubBalance.objects.create(
             budget_month=self.budget_month, name="Savings", balance_amount=1000
         )
         response = self.client.post(
@@ -139,6 +340,16 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertFalse(BudgetMonth.objects.filter(pk=self.budget_month.id).exists())
         self.assertFalse(SubBalance.objects.filter(budget_month=self.budget_month).exists())
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                action="deleted_money_entry", object_id=entry.id
+            ).exists()
+        )
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                action="deleted_sub_balance", object_id=sub_balance.id
+            ).exists()
+        )
 
     def test_main_balance_edit_keeps_reporting_period_fixed(self):
         edit_page = self.client.get(
@@ -153,22 +364,33 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.budget_month.refresh_from_db()
         self.assertEqual((self.budget_month.year, self.budget_month.month), (2026, 8))
         self.assertEqual(self.budget_month.name, "Updated August")
+        self.assertEqual(self.budget_month.total_money, Decimal("500000"))
 
     def test_sub_balance_inherits_parent_and_edit_preserves_creation_date(self):
+        source_entry = self.budget_month.input_balances.first()
         create_page = self.client.get(
             reverse("budget:create_sub_balance", args=[self.budget_month.id])
         )
         self.assertEqual(create_page.status_code, 200)
+        self.assertContains(create_page, "Extra allocations")
+        self.assertContains(create_page, "Opening balance category")
+        self.assertContains(create_page, 'data-add-entry="sub"')
         response = self.client.post(
             reverse("budget:create_sub_balance", args=[self.budget_month.id]),
             {
                 "name": "Emergency",
+                "source_input_balance": source_entry.id,
                 "balance_amount": "50000",
                 "balance_date": "2026-08-14",
+                "extra_allocations": '[{"category":"Travel","amount":"20000"}]',
                 "estimated_amount": "20000",
             },
         )
         sub = SubBalance.objects.get(budget_month=self.budget_month, name="Emergency")
+        self.assertEqual(
+            list(sub.allocations.values_list("category", "amount")),
+            [("Travel", Decimal("20000"))],
+        )
         detail = self.client.get(reverse("budget:sub_balance_detail", args=[sub.id]))
         self.assertEqual(detail.status_code, 200)
         edit_page = self.client.get(reverse("budget:edit_sub_balance", args=[sub.id]))
@@ -178,6 +400,7 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
             reverse("budget:edit_sub_balance", args=[sub.id]),
             {
                 "name": "Emergency Fund",
+                "source_input_balance": source_entry.id,
                 "balance_amount": "45000",
                 "balance_date": "2026-08-16",
                 "estimated_amount": "25000",
@@ -192,6 +415,7 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.assertEqual(sub.balance_date, date(2026, 8, 16))
 
     def test_setup_sub_balance_form_persists_date_and_inherits_month_year(self):
+        source_entry = self.budget_month.input_balances.first()
         response = self.client.get(reverse("budget:dashboard"), {"tab": "setup"})
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'type="date"')
@@ -203,6 +427,7 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
             {
                 "action": "create_sub_balance",
                 "budget_month": self.budget_month.id,
+                "source_input_balance": source_entry.id,
                 "name": "Date Checked",
                 "balance_amount": "25000",
                 "balance_date": "2026-08-31",
@@ -219,6 +444,7 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.assertContains(refreshed, "Date Checked")
 
     def test_sub_balance_creation_rejects_invalid_and_parent_period_dates(self):
+        source_entry = self.budget_month.input_balances.first()
         for invalid_date in ("2026-02-30", "2026-09-01"):
             with self.subTest(balance_date=invalid_date):
                 response = self.client.post(
@@ -226,6 +452,7 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
                     {
                         "action": "create_sub_balance",
                         "budget_month": self.budget_month.id,
+                        "source_input_balance": source_entry.id,
                         "name": f"Invalid {invalid_date}",
                         "balance_amount": "1000",
                         "balance_date": invalid_date,
@@ -247,12 +474,14 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
             month=2,
             total_money=Decimal("100000"),
         )
+        source_entry = february.input_balances.first()
 
         response = self.client.post(
             f"{reverse('budget:dashboard')}?tab=setup",
             {
                 "action": "create_sub_balance",
                 "budget_month": february.id,
+                "source_input_balance": source_entry.id,
                 "name": "Leap Day Balance",
                 "balance_amount": "1000",
                 "balance_date": "2024-02-29",
@@ -270,11 +499,13 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         category_count = BudgetCategory.objects.filter(
             budget_month=self.budget_month
         ).count()
+        source_entry = self.budget_month.input_balances.first()
         for name in ("Home", "Savings", "Emergency"):
             response = self.client.post(
                 reverse("budget:create_sub_balance", args=[self.budget_month.id]),
                 {
                     "name": name,
+                    "source_input_balance": source_entry.id,
                     "balance_amount": "50000",
                     "balance_date": "2026-08-01",
                     "estimated_amount": "",
@@ -501,6 +732,19 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
             send_monthly_report_email(self.user.email, self.user.name, report)
         )
         html_content = mail.outbox[0].alternatives[0][0]
+        from email.utils import parseaddr
+
+        self.assertEqual(
+            parseaddr(mail.outbox[0].from_email)[0],
+            "Pocket Money Management System",
+        )
+        self.assertIn("Pocket Money Management System", html_content)
+        self.assertIn('src="cid:pmms-logo"', html_content)
+        self.assertIn('bgcolor="#edf4ff"', html_content)
+        email_message = mail.outbox[0].message(policy=email.policy.SMTP)
+        self.assertTrue(
+            any(part.get("Content-ID") == "<pmms-logo>" for part in email_message.walk())
+        )
         self.assertIn("Main Balance — Direct Actual Spending", html_content)
         self.assertIn("Sub-Balance Actual Spending", html_content)
         self.assertIn("Combined Actual Spending", html_content)
@@ -689,6 +933,28 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.assertContains(retried, "Sub Balance report sent")
         self.assertEqual(len(mail.outbox), 1)
 
+    @patch(
+        "budget.views.send_sub_balance_report_email",
+        side_effect=RuntimeError("report rendering failed"),
+    )
+    def test_sub_balance_manual_report_builder_error_is_reported(self, _send_email):
+        sub_balance = SubBalance.objects.create(
+            budget_month=self.budget_month, name="Render failure", balance_amount=100
+        )
+
+        response = self.client.post(
+            reverse("budget:finish_sub_balance", args=[sub_balance.id]),
+            follow=True,
+        )
+
+        self.assertContains(response, "The report email could not be sent")
+        self.assertFalse(
+            ReportEmailLog.objects.filter(
+                budget_month=self.budget_month,
+                report_type=f"sbfn_{sub_balance.id}",
+            ).exists()
+        )
+
     @override_settings(
         EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
         EMAIL_HOST_USER="configured@example.com",
@@ -840,6 +1106,7 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
 
         self.assertEqual(len(mail.outbox), 3)
         self.assertIn("0 MMK", mail.outbox[0].body)
+        self.assertIn("Income by Category", mail.outbox[0].alternatives[0][0])
         self.assertIn("42,000 MMK", mail.outbox[1].body)
         self.assertIn("42,000 MMK", mail.outbox[2].body)
         self.assertNotIn("attached as HTML", mail.outbox[2].body)
@@ -976,7 +1243,7 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.assertEqual(self.budget_month.year, 2026)
         self.assertEqual(self.budget_month.month, 8)
         self.assertEqual(self.budget_month.name, "Revised Main Balance")
-        self.assertEqual(self.budget_month.total_money, Decimal("600000"))
+        self.assertEqual(self.budget_month.total_money, Decimal("500000"))
 
     def test_delete_budget_month_from_dashboard(self):
         second_month = BudgetMonth.objects.create(
@@ -1018,11 +1285,13 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.assertNotContains(response, "Estimated Money (MMK)")
 
     def test_dashboard_creates_sub_balance_under_selected_owned_main_balance(self):
+        source_entry = self.budget_month.input_balances.first()
         response = self.client.post(
             f"{reverse('budget:dashboard')}?tab=setup",
             {
                 "action": "create_sub_balance",
                 "budget_month": self.budget_month.id,
+                "source_input_balance": source_entry.id,
                 "name": "Travel Fund",
                 "balance_amount": "80000",
                 "balance_date": "2026-08-11",
@@ -1647,8 +1916,9 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         # Mirror the Linn Latt Loon case: only negative ("extra money") entries,
         # with category budgets of zero. They must be treated as expenditures so
         # the remaining balance is reduced, never inflated by adding them back.
-        self.budget_month.total_money = Decimal("190000")
-        self.budget_month.save(update_fields=["total_money"])
+        initial_input = self.budget_month.input_balances.first()
+        initial_input.amount = Decimal("190000")
+        initial_input.save(update_fields=["amount"])
 
         for name, amount in [
             ("Sim Reconfigure", "10000"),
@@ -1937,6 +2207,37 @@ class AutomatedEmailScheduleTests(TestCase):
         )
         self.assertEqual(len(mail.outbox), 1)
 
+    def test_final_report_aggregates_multiple_main_balances_once(self):
+        BudgetMonth.objects.create(
+            user=self.user,
+            year=2026,
+            month=8,
+            total_money=Decimal("125000"),
+        )
+
+        results = process_automated_emails(today=date(2026, 8, 31))
+
+        self.assertEqual(len(results["sent"]), 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("625,000 MMK", mail.outbox[0].alternatives[0][0])
+
+    @patch(
+        "budget.services.automated_email_service.send_monthly_report_email",
+        return_value=False,
+    )
+    def test_failed_final_report_is_marked_for_retry(self, _send_email):
+        results = process_automated_emails(today=date(2026, 8, 31))
+
+        self.assertIn(
+            "August 2026 — monthly full email not sent", results["failed"]
+        )
+        self.assertFalse(
+            ReportEmailLog.objects.filter(
+                budget_month=self.budget_month,
+                report_type=ReportEmailLog.MONTHLY_FULL,
+            ).exists()
+        )
+
     def test_no_duplicate_emails_on_second_run_same_day(self):
         process_automated_emails(today=date(2026, 8, 31))
         first_count = len(mail.outbox)
@@ -1981,6 +2282,10 @@ class AutomatedEmailScheduleTests(TestCase):
         self.assertTrue(sent)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn(category_1.name, mail.outbox[0].subject)
+        category_html = mail.outbox[0].alternatives[0][0]
+        self.assertIn("Category Transactions", category_html)
+        self.assertIn("Lunch", category_html)
+        self.assertIn("Pocket Money Management System", category_html)
         self.assertTrue(
             ReportEmailLog.objects.filter(
                 budget_month=self.budget_month,
@@ -2253,3 +2558,1036 @@ class ChangePasswordTests(TestCase):
         )
         response = self.client.get(reverse("budget:dashboard"))
         self.assertEqual(response.status_code, 200)
+
+
+class InputBalanceCrudTests(TestCase):
+    def setUp(self):
+        self.auth_user = User.objects.create_user(
+            username="income-user", email="income@example.com", password="Passw0rd!x"
+        )
+        self.user = PocketUser.objects.create(
+            name="Income User",
+            email="income@example.com",
+            auth_user=self.auth_user,
+        )
+        self.balance = Balance.objects.create(user=self.user, name="Wallet")
+        self.month = BudgetMonth.objects.create(
+            user=self.user,
+            balance=self.balance,
+            year=2026,
+            month=11,
+            category="Base balance",
+            total_money=Decimal("0"),
+        )
+        self.month.input_balances.all().delete()
+        self.client.force_login(self.auth_user)
+
+    def _add_input(self, note, amount, category="Income"):
+        response = self.client.post(
+            reverse("budget:create_input_balance", args=[self.month.id]),
+            {"category": category, "amount": str(amount), "note": note},
+        )
+        self.assertEqual(response.status_code, 302)
+        return self.month.input_balances.get(note=note)
+
+    def test_sub_balance_creation_categorizes_opening_and_extra_allocations(self):
+        entry = self._add_input("Allocation pool", 100000, category="Salary")
+
+        response = self.client.post(
+            reverse("budget:create_sub_balance", args=[self.month.id]),
+            {
+                "name": "Food",
+                "source_input_balance": entry.id,
+                "balance_amount": "40000",
+                "opening_balance_category": "Opening groceries",
+                "balance_date": "2026-11-02",
+                "extra_allocations": '[{"category":"Groceries","amount":"20000"}]',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        sub_balance = SubBalance.objects.get(name="Food")
+        self.assertEqual(
+            list(sub_balance.allocations.values_list("category", "amount")),
+            [
+                ("Opening groceries", Decimal("40000")),
+                ("Groceries", Decimal("20000")),
+            ],
+        )
+        self.assertEqual(sub_balance.balance_amount, Decimal("0"))
+        self.assertEqual(sub_balance.allocated_amount, Decimal("60000"))
+        self.assertEqual(available_amount_for_entry(entry), Decimal("40000"))
+
+    def test_extra_category_allocations_cannot_exceed_available_entry_money(self):
+        entry = self._add_input("Allocation pool", 100000, category="Salary")
+
+        response = self.client.post(
+            reverse("budget:create_sub_balance", args=[self.month.id]),
+            {
+                "name": "Overallocated",
+                "source_input_balance": entry.id,
+                "balance_amount": "60000",
+                "opening_balance_category": "Opening groceries",
+                "balance_date": "2026-11-02",
+                "extra_allocations": '[{"category":"Groceries","amount":"50000"}]',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "opening amount and category allocations")
+        self.assertFalse(SubBalance.objects.filter(name="Overallocated").exists())
+
+    def test_main_balance_starts_with_one_entry_and_accepts_more_categories(self):
+        response = self.client.post(
+            reverse("budget:dashboard"),
+            {
+                "action": "create_budget",
+                "balance": self.balance.id,
+                "name": "November salary",
+                "category": "Salary",
+                "year": 2026,
+                "month": 11,
+                "total_money": "200000",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        salary_balance = BudgetMonth.objects.get(
+            user=self.user, year=2026, month=11, category="Salary"
+        )
+        self.assertEqual(salary_balance.input_balances.count(), 1)
+        self.assertEqual(salary_balance.total_money, Decimal("200000"))
+        initial_entry = salary_balance.input_balances.get()
+        self.assertEqual(initial_entry.category, "Salary")
+        self.assertEqual(initial_entry.amount, Decimal("200000"))
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                action="created_main_balance",
+                object_id=salary_balance.id,
+            ).exists()
+        )
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                action="created_money_entry",
+                money_entry_id=initial_entry.id,
+            ).exists()
+        )
+
+        for category, amount in [("Allowance", "50000"), ("Bonus", "30000")]:
+            response = self.client.post(
+                reverse("budget:create_input_balance", args=[salary_balance.id]),
+                {"category": category, "amount": amount, "note": ""},
+            )
+            self.assertEqual(response.status_code, 302)
+        salary_balance.refresh_from_db()
+        self.assertEqual(salary_balance.input_balances.count(), 3)
+        self.assertEqual(salary_balance.total_money, Decimal("280000"))
+
+        response = self.client.post(
+            reverse("budget:dashboard"),
+            {
+                "action": "create_budget",
+                "balance": self.balance.id,
+                "name": "November freelance",
+                "category": "Freelance",
+                "year": 2026,
+                "month": 11,
+                "total_money": "150000",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        freelance_balance = BudgetMonth.objects.get(
+            user=self.user, year=2026, month=11, category="Freelance"
+        )
+        report = generate_monthly_report(salary_balance.id)
+        self.assertEqual(report.total_money, Decimal("430000"))
+        dashboard = self.client.get(reverse("budget:dashboard"))
+        self.assertContains(dashboard, "Monthly Total: 430,000 MMK")
+        detail = self.client.get(
+            reverse("budget:main_balance_detail", args=[salary_balance.id])
+        )
+        self.assertNotContains(detail, "November freelance")
+        self.assertNotContains(detail, "430,000 MMK")
+        self.assertContains(detail, "Total Money:")
+        self.assertEqual(detail.context["main_balance"].total_money, Decimal("280000"))
+        self.assertEqual(
+            [entry.id for entry in detail.context["input_balances"]],
+            list(salary_balance.input_balances.values_list("id", flat=True)),
+        )
+        self.assertContains(detail, "← Back to Main Balances")
+
+        edit_entry_page = self.client.get(
+            reverse(
+                "budget:edit_input_balance",
+                args=[salary_balance.input_balances.first().id],
+            )
+        )
+        self.assertContains(edit_entry_page, "November salary")
+
+        response = self.client.post(
+            reverse("budget:edit_main_balance", args=[freelance_balance.id]),
+            {"name": "November freelance", "category": "Contract work"},
+        )
+        self.assertEqual(response.status_code, 302)
+        salary_balance.refresh_from_db()
+        freelance_balance.refresh_from_db()
+        self.assertEqual(salary_balance.category, "Salary")
+        self.assertEqual(freelance_balance.category, "Contract work")
+
+        response = self.client.post(
+            reverse("budget:delete_main_balance", args=[freelance_balance.id])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(BudgetMonth.objects.filter(pk=salary_balance.id).exists())
+        self.assertFalse(BudgetMonth.objects.filter(pk=freelance_balance.id).exists())
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                action="deleted_main_balance",
+                object_id=freelance_balance.id,
+            ).exists()
+        )
+        self.assertEqual(
+            generate_monthly_report(salary_balance.id).total_money, Decimal("280000")
+        )
+
+    def test_multiple_inputs_update_delete_and_expenses_recalculate_totals(self):
+        self._add_input("Salary", 300000, category="Salary")
+        freelance = self._add_input("Freelance", 100000, category="Freelance")
+        gift = self._add_input("Gift", 50000, category="Gift")
+        report = generate_monthly_report(self.month.id)
+        self.assertEqual(report.total_money, Decimal("450000"))
+
+        response = self.client.post(
+            reverse("budget:edit_input_balance", args=[freelance.id]),
+            {
+                "category": "Contract work",
+                "amount": "150000",
+                "note": "Website work",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        freelance.refresh_from_db()
+        self.assertEqual(freelance.category, "Contract work")
+        self.assertEqual(freelance.amount, Decimal("150000"))
+        self.assertEqual(freelance.note, "Website work")
+        report = generate_monthly_report(self.month.id)
+        self.assertEqual(report.total_money, Decimal("500000"))
+
+        response = self.client.post(
+            reverse("budget:delete_input_balance", args=[gift.id])
+        )
+        self.assertEqual(response.status_code, 302)
+        report = generate_monthly_report(self.month.id)
+        self.assertEqual(report.total_money, Decimal("450000"))
+        self.month.refresh_from_db()
+        self.assertEqual(self.month.total_money, Decimal("450000"))
+
+        DailyExpense.objects.create(
+            budget_month=self.month,
+            category=self.month.categories.get(period_index=1),
+            expense_date=date(2026, 11, 5),
+            amount=Decimal("120000"),
+        )
+        report = generate_monthly_report(self.month.id)
+        self.assertEqual(report.remaining_balance, Decimal("330000"))
+
+    def test_input_totals_are_month_scoped(self):
+        self._add_input("Salary", 450000)
+        december = BudgetMonth.objects.create(
+            user=self.user,
+            balance=self.balance,
+            year=2026,
+            month=12,
+            total_money=Decimal("0"),
+        )
+        InputBalance.objects.create(
+            budget_month=december,
+            category="Salary",
+            amount=Decimal("400000"),
+        )
+
+        self.assertEqual(
+            generate_monthly_report(self.month.id).total_money, Decimal("450000")
+        )
+        self.assertEqual(
+            generate_monthly_report(december.id).total_money, Decimal("400000")
+        )
+
+    def test_duplicate_categories_create_distinct_money_entries(self):
+        first = self._add_input("First salary", 300000, category="Salary")
+        second = self._add_input("Second salary", 100000, category="Salary")
+
+        self.assertNotEqual(first.id, second.id)
+        self.assertEqual(self.month.input_balances.filter(category="Salary").count(), 2)
+        self.month.refresh_from_db()
+        self.assertEqual(self.month.total_money, Decimal("400000"))
+
+    def test_input_form_validation_is_friendly_and_preserves_values(self):
+        url = reverse("budget:create_input_balance", args=[self.month.id])
+        invalid_submissions = [
+            (
+                {"category": "", "amount": "12000", "note": "Retain this note"},
+                "Please enter a category.",
+            ),
+            (
+                {"category": "Salary", "amount": "", "note": "Retain this note"},
+                "Please enter an amount.",
+            ),
+            (
+                {"category": "Salary", "amount": "abc", "note": "Retain this note"},
+                "Please enter a valid amount.",
+            ),
+            (
+                {"category": "Salary", "amount": "-1", "note": "Retain this note"},
+                "Amount cannot be negative.",
+            ),
+        ]
+
+        for data, error in invalid_submissions:
+            with self.subTest(error=error):
+                response = self.client.post(url, data)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, error)
+                self.assertContains(response, "Please correct the errors below")
+                self.assertEqual(response.context["form"].data.get("note"), "Retain this note")
+                self.assertEqual(self.month.input_balances.count(), 0)
+
+    def test_zero_amount_remains_allowed_by_existing_business_rule(self):
+        entry = self._add_input("No income this month", 0, category="Other")
+        self.assertEqual(entry.amount, Decimal("0"))
+
+    def test_create_edit_and_delete_show_success_messages(self):
+        create_response = self.client.post(
+            reverse("budget:create_input_balance", args=[self.month.id]),
+            {"category": "Salary", "amount": "100000", "note": ""},
+            follow=True,
+        )
+        self.assertContains(create_response, "Money entry added successfully.")
+        entry = self.month.input_balances.get(category="Salary")
+
+        edit_response = self.client.post(
+            reverse("budget:edit_input_balance", args=[entry.id]),
+            {"category": "Freelance", "amount": "120000", "note": ""},
+            follow=True,
+        )
+        self.assertContains(edit_response, "Money entry updated successfully.")
+
+        self.client.post(
+            reverse("budget:create_input_balance", args=[self.month.id]),
+            {"category": "Bonus", "amount": "1000", "note": ""},
+        )
+
+        delete_response = self.client.post(
+            reverse("budget:delete_input_balance", args=[entry.id]), follow=True
+        )
+        self.assertContains(delete_response, "Money entry deleted successfully.")
+        deleted_event = AuditEvent.objects.get(
+            action="deleted_money_entry", object_id=entry.id
+        )
+        self.assertEqual(deleted_event.before["category"], "Freelance")
+        self.assertEqual(deleted_event.money_entry_amount, Decimal("120000"))
+        self.assertEqual(deleted_event.money_entry_id, entry.id)
+
+    def test_sub_balance_allocations_respect_available_money_and_edit_release(self):
+        entry = self._add_input("Salary pool", 100000, category="Salary")
+        create_url = reverse("budget:create_sub_balance", args=[self.month.id])
+        first_response = self.client.post(
+            create_url,
+            {
+                "name": "Food",
+                "source_input_balance": entry.id,
+                "balance_amount": "70000",
+                "balance_date": "2026-11-02",
+            },
+        )
+        self.assertEqual(
+            first_response.status_code,
+            302,
+            str(first_response.context["form"].errors)
+            if first_response.context
+            else "No form context returned",
+        )
+        first = SubBalance.objects.get(name="Food")
+        self.assertEqual(first.source_input_balance_id, entry.id)
+        created_allocation_event = AuditEvent.objects.get(
+            action="created_sub_balance", object_id=first.id
+        )
+        self.assertEqual(created_allocation_event.money_entry_id, entry.id)
+        self.assertEqual(created_allocation_event.actor_role, "user")
+
+        too_large = self.client.post(
+            create_url,
+            {
+                "name": "Transport",
+                "source_input_balance": entry.id,
+                "balance_amount": "40000",
+                "balance_date": "2026-11-03",
+            },
+        )
+        self.assertEqual(too_large.status_code, 200)
+        self.assertContains(too_large, "Available amount: 30,000 MMK.")
+        self.assertFalse(SubBalance.objects.filter(name="Transport").exists())
+
+        edit_response = self.client.post(
+            reverse("budget:edit_sub_balance", args=[first.id]),
+            {
+                "name": "Food",
+                "source_input_balance": entry.id,
+                "balance_amount": "50000",
+                "balance_date": "2026-11-02",
+            },
+        )
+        self.assertEqual(edit_response.status_code, 302)
+        first.refresh_from_db()
+        self.assertEqual(first.allocated_amount, Decimal("50000"))
+        edited_allocation_event = AuditEvent.objects.get(
+            action="edited_sub_balance", object_id=first.id
+        )
+        self.assertEqual(edited_allocation_event.before["allocated_amount"], "70000")
+        self.assertEqual(edited_allocation_event.after["allocated_amount"], "50000")
+        self.assertEqual(
+            available_amount_for_entry(entry), Decimal("50000")
+        )
+
+        second_response = self.client.post(
+            create_url,
+            {
+                "name": "Transport",
+                "source_input_balance": entry.id,
+                "balance_amount": "40000",
+                "balance_date": "2026-11-03",
+            },
+        )
+        self.assertEqual(second_response.status_code, 302)
+        second = SubBalance.objects.get(name="Transport")
+
+        blocked_delete = self.client.post(
+            reverse("budget:delete_input_balance", args=[entry.id]), follow=True
+        )
+        self.assertContains(
+            blocked_delete,
+            "This Money Entry has Sub Balance allocations.",
+        )
+        self.assertTrue(InputBalance.objects.filter(pk=entry.id).exists())
+
+        lower_entry_amount = self.client.post(
+            reverse("budget:edit_input_balance", args=[entry.id]),
+            {"category": "Salary", "amount": "40000", "note": "Salary pool"},
+        )
+        self.assertEqual(lower_entry_amount.status_code, 200)
+        self.assertContains(
+            lower_entry_amount,
+            "Amount cannot be reduced below its current Sub Balance allocations",
+        )
+        entry.refresh_from_db()
+        self.assertEqual(entry.amount, Decimal("100000"))
+
+        self.client.post(reverse("budget:delete_sub_balance", args=[second.id]))
+        self.assertEqual(available_amount_for_entry(entry), Decimal("50000"))
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                action="deleted_sub_balance", object_id=second.id
+            ).exists()
+        )
+
+    def test_sub_balance_supports_empty_and_multiple_allocation_records(self):
+        self._add_input("Salary", 480000, category="Salary")
+        sub_balance = SubBalance.objects.create(
+            budget_month=self.month,
+            name="Monthly Budget",
+            balance_date=date(2026, 11, 1),
+        )
+        detail_url = reverse("budget:sub_balance_detail", args=[sub_balance.id])
+        self.assertContains(self.client.get(detail_url), "No allocated money yet.")
+
+        add_url = reverse("budget:create_sub_balance_allocation", args=[sub_balance.id])
+        for amount in (100000, 50000):
+            response = self.client.post(
+                add_url, {"category": "Food", "amount": str(amount)}
+            )
+            self.assertEqual(response.status_code, 302)
+        self.assertEqual(sub_balance.allocations.count(), 2)
+        self.assertEqual(sub_balance.allocated_amount, Decimal("150000"))
+
+        allocation = sub_balance.allocations.first()
+        response = self.client.post(
+            reverse("budget:edit_sub_balance_allocation", args=[allocation.id]),
+            {"category": "Transport", "amount": "40000"},
+        )
+        self.assertEqual(response.status_code, 302)
+        allocation.refresh_from_db()
+        self.assertEqual(allocation.category, "Transport")
+        self.assertEqual(allocation.amount, Decimal("40000"))
+
+        response = self.client.post(
+            reverse("budget:delete_sub_balance_allocation", args=[allocation.id])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(sub_balance.allocations.count(), 1)
+        self.assertTrue(SubBalance.objects.filter(pk=sub_balance.pk).exists())
+
+    def test_inherited_allocation_uses_main_balance_total(self):
+        self._add_input("Salary", 400000, category="Salary")
+        self._add_input("Bonus", 50000, category="Bonus")
+        self._add_input("Allowance", 30000, category="Allowance")
+        self.month.refresh_from_db()
+        inherited = SubBalance.objects.create(
+            budget_month=self.month,
+            name="Full Budget",
+            allocation_mode=SubBalance.INHERIT_MAIN_TOTAL,
+            balance_date=date(2026, 11, 1),
+        )
+        self.assertEqual(inherited.allocated_amount, Decimal("480000"))
+        response = self.client.get(
+            reverse("budget:sub_balance_detail", args=[inherited.id])
+        )
+        self.assertContains(response, "Inherited from Main Balance Total")
+        self.assertContains(response, "480,000 MMK")
+        self.assertNotContains(response, "Salary 480,000 MMK")
+
+    def test_legacy_sub_balance_can_be_assigned_to_an_entry(self):
+        entry = self._add_input("Income", 100000, category="Salary")
+        legacy = SubBalance.objects.create(
+            budget_month=self.month,
+            name="Legacy food",
+            balance_amount=Decimal("20000"),
+            balance_date=date(2026, 11, 3),
+        )
+
+        response = self.client.post(
+            reverse("budget:edit_sub_balance", args=[legacy.id]),
+            {
+                "name": "Legacy food",
+                "source_input_balance": entry.id,
+                "balance_amount": "20000",
+                "balance_date": "2026-11-03",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.source_input_balance_id, entry.id)
+
+    def test_audit_history_is_owner_scoped_and_staff_can_filter_all_users(self):
+        own_entry = self._add_input("Own income", 100000, category="Own Category")
+        other_auth = User.objects.create_user(
+            username="audit-other",
+            email="audit-other@example.com",
+            password="Passw0rd!x",
+        )
+        other_user = PocketUser.objects.create(
+            name="Audit Other",
+            email="audit-other@example.com",
+            auth_user=other_auth,
+        )
+        other_balance = Balance.objects.create(user=other_user, name="Wallet")
+        other_month = BudgetMonth.objects.create(
+            user=other_user,
+            balance=other_balance,
+            year=2026,
+            month=11,
+            category="Other",
+            total_money=Decimal("0"),
+        )
+        self.client.force_login(other_auth)
+        self.client.post(
+            reverse("budget:create_input_balance", args=[other_month.id]),
+            {"category": "Private Other Category", "amount": "25000", "note": ""},
+        )
+
+        self.client.force_login(self.auth_user)
+        own_history = self.client.get(
+            reverse("budget:audit_history"), {"user": other_auth.id}
+        )
+        self.assertEqual(own_history.status_code, 200)
+        self.assertContains(own_history, "Own Category")
+        self.assertNotContains(own_history, "Private Other Category")
+
+        admin = User.objects.create_user(
+            username="audit-admin",
+            email="audit-admin@example.com",
+            password="Passw0rd!x",
+            is_staff=True,
+        )
+        self.client.force_login(admin)
+        all_history = self.client.get(reverse("budget:admin_audit_history"))
+        self.assertContains(all_history, "Own Category")
+        self.assertContains(all_history, "Private Other Category")
+        other_event = AuditEvent.objects.get(
+            actor=other_auth,
+            action="created_money_entry",
+            money_entry_category="Private Other Category",
+        )
+        filtered_history = self.client.get(
+            reverse("budget:admin_audit_history"),
+            {
+                "user": other_auth.id,
+                "action": "created_money_entry",
+                "role": "user",
+                "date_from": other_event.created_at.date().isoformat(),
+                "date_to": other_event.created_at.date().isoformat(),
+            },
+        )
+        self.assertContains(filtered_history, "Private Other Category")
+        self.assertNotContains(filtered_history, "Own Category")
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                actor=self.auth_user,
+                action="created_money_entry",
+                money_entry_id=own_entry.id,
+            ).exists()
+        )
+
+    def test_non_staff_cannot_view_admin_audit_history(self):
+        response = self.client.get(reverse("budget:admin_audit_history"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("budget:dashboard"))
+
+    def test_input_records_are_owner_scoped_and_reject_negative_amounts(self):
+        entry = self._add_input("Salary", 100000)
+        other_auth = User.objects.create_user(
+            username="other-income-user",
+            email="other-income@example.com",
+            password="Passw0rd!x",
+        )
+        PocketUser.objects.create(
+            name="Other User",
+            email="other-income@example.com",
+            auth_user=other_auth,
+        )
+        self.client.force_login(other_auth)
+        response = self.client.post(
+            reverse("budget:delete_input_balance", args=[entry.id])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(InputBalance.objects.filter(pk=entry.id).exists())
+
+        other_balance = Balance.objects.create(
+            user=PocketUser.objects.get(auth_user=other_auth), name="Wallet"
+        )
+        other_month = BudgetMonth.objects.create(
+            user=PocketUser.objects.get(auth_user=other_auth),
+            balance=other_balance,
+            year=2026,
+            month=11,
+            total_money=Decimal("0"),
+        )
+        response = self.client.post(
+            reverse("budget:create_input_balance", args=[other_month.id]),
+            {"category": "Salary", "amount": "-1", "note": ""},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(other_month.input_balances.count(), 1)
+
+
+class ReportExportWorkflowTests(TestCase):
+    def setUp(self):
+        self.auth_user = User.objects.create_user(
+            username="report-user",
+            email="report-user@example.com",
+            password="Passw0rd!x",
+        )
+        self.user = PocketUser.objects.create(
+            name="Report User",
+            email=self.auth_user.email,
+            auth_user=self.auth_user,
+        )
+        self.balance = Balance.objects.create(user=self.user, name="Wallet")
+        self.salary = BudgetMonth.objects.create(
+            user=self.user,
+            balance=self.balance,
+            name="Salary",
+            year=2026,
+            month=11,
+            total_money=Decimal("0"),
+        )
+        self.freelance = BudgetMonth.objects.create(
+            user=self.user,
+            balance=self.balance,
+            name="Freelance",
+            year=2026,
+            month=11,
+            total_money=Decimal("0"),
+        )
+        self.business = BudgetMonth.objects.create(
+            user=self.user,
+            balance=self.balance,
+            name="Business",
+            year=2026,
+            month=11,
+            total_money=Decimal("0"),
+        )
+        self.december = BudgetMonth.objects.create(
+            user=self.user,
+            balance=self.balance,
+            name="December Income",
+            year=2026,
+            month=12,
+            total_money=Decimal("0"),
+        )
+        InputBalance.objects.create(
+            budget_month=self.salary, category="Salary", amount=400000
+        )
+        InputBalance.objects.create(
+            budget_month=self.salary, category="Salary", amount=50000
+        )
+        InputBalance.objects.create(
+            budget_month=self.freelance, category="Project", amount=200000
+        )
+        InputBalance.objects.create(
+            budget_month=self.freelance, category="Design", amount=100000
+        )
+        InputBalance.objects.create(
+            budget_month=self.business, category="Business income", amount=300000
+        )
+        SubBalance.objects.create(
+            budget_month=self.salary, name="Food", balance_amount=100000
+        )
+        SubBalance.objects.create(
+            budget_month=self.business, name="Business Budget", balance_amount=50000
+        )
+        self.expense_category = BudgetCategory.objects.create(
+            budget_month=self.salary,
+            name="Groceries",
+            estimated_amount=Decimal("20000"),
+        )
+        DailyExpense.objects.create(
+            budget_month=self.salary,
+            category=self.expense_category,
+            expense_date=date(2026, 11, 5),
+            amount=Decimal("10000"),
+        )
+        self.client.force_login(self.auth_user)
+
+    def test_month_options_are_unique_and_balances_are_month_scoped(self):
+        response = self.client.get(
+            reverse("budget:reports"), {"month": "2026-11"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item["key"] for item in response.context["months"]],
+            ["2026-12", "2026-11"],
+        )
+        self.assertEqual(
+            list(response.context["month_balances"]),
+            [self.salary, self.freelance, self.business],
+        )
+        self.assertContains(response, 'data-month-key="2026-11"')
+
+    def test_report_builder_defaults_to_latest_month_and_has_single_selection_form(self):
+        response = self.client.get(reverse("budget:reports"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_month_key"], "2026-12")
+        self.assertEqual(
+            list(response.context["all_month_balances"]),
+            [self.december, self.salary, self.freelance, self.business],
+        )
+        self.assertContains(response, 'name="month" class="report-month-select" required')
+        self.assertContains(response, "Generate report")
+        self.assertNotContains(response, "Load month")
+
+    @patch(
+        "budget.views.generate_monthly_report",
+        side_effect=ValueError("invalid legacy report data"),
+    )
+    def test_legacy_report_generation_error_redirects_with_message(self, _generate):
+        response = self.client.get(
+            reverse("budget:reports"),
+            {"budget_month": self.salary.pk},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "The report could not be generated")
+
+    def test_web_report_and_csv_use_only_selected_balances_and_keep_entries(self):
+        food = self.salary.sub_balances.get(name="Food")
+        SubBalanceAllocation.objects.create(
+            sub_balance=food, category="Sub Food", amount=25000
+        )
+        sub_category = BudgetCategory.objects.create(
+            budget_month=self.salary,
+            sub_balance=food,
+            name="Sub Food",
+            estimated_amount=Decimal("30000"),
+        )
+        DailyExpense.objects.create(
+            budget_month=self.salary,
+            sub_balance=food,
+            category=sub_category,
+            expense_date=date(2026, 11, 6),
+            amount=Decimal("5000"),
+        )
+        selected_ids = [str(self.salary.pk), str(self.freelance.pk)]
+        web_response = self.client.post(
+            reverse("budget:reports"),
+            {
+                "action": "web",
+                "month": "2026-11",
+                "main_balance_ids": selected_ids,
+            },
+        )
+
+        self.assertEqual(web_response.status_code, 200)
+        dataset = web_response.context["report_dataset"]
+        self.assertEqual(
+            [item["main_balance"].name for item in dataset["main_balances"]],
+            ["Salary", "Freelance"],
+        )
+        self.assertEqual(dataset["totals"]["money"], Decimal("750000"))
+        self.assertEqual(len(dataset["main_balances"][0]["money_entries"]), 3)
+        self.assertEqual(
+            dataset["main_balances"][0]["sub_balance_details"][0][
+                "balance_categories"
+            ],
+            [
+                {
+                    "name": "Uncategorized opening balance",
+                    "basis": "Opening balance",
+                    "allocated_amount": Decimal("100000"),
+                    "actual_amount": Decimal("0"),
+                    "remaining_balance": Decimal("100000"),
+                },
+                {
+                    "name": "Sub Food",
+                    "basis": "Category allocation",
+                    "allocated_amount": Decimal("25000"),
+                    "actual_amount": Decimal("5000"),
+                    "remaining_balance": Decimal("20000"),
+                },
+            ],
+        )
+        self.assertEqual(
+            dataset["main_balances"][0]["income_by_category"],
+            [
+                {
+                    "category_name": "Income",
+                    "amount": Decimal("0"),
+                    "entry_count": 1,
+                },
+                {
+                    "category_name": "Salary",
+                    "amount": Decimal("450000"),
+                    "entry_count": 2,
+                }
+            ],
+        )
+        self.assertContains(web_response, "Income by category")
+        self.assertContains(web_response, "Total income")
+        self.assertEqual(
+            web_response.content.decode().count("Month: November 2026"), 1
+        )
+        self.assertContains(web_response, "No sub balances yet.")
+        self.assertNotContains(web_response, "Main Balance: Business")
+
+        csv_response = self.client.post(
+            reverse("budget:reports"),
+            {
+                "action": "csv",
+                "month": "2026-11",
+                "main_balance_ids": selected_ids,
+            },
+        )
+        self.assertEqual(csv_response.status_code, 200)
+        rows = list(
+            csv.DictReader(StringIO(csv_response.content.decode("utf-8-sig")))
+        )
+        self.assertEqual(
+            {row["Main Balance Name"] for row in rows},
+            {"Salary", "Freelance"},
+        )
+        self.assertEqual(
+            {row["Organization"] for row in rows},
+            {"Pocket Money Management System"},
+        )
+        self.assertTrue(
+            all(row["Report Title"] == "Monthly Financial Report — November 2026" for row in rows)
+        )
+        self.assertEqual(
+            [row["Money Entry Amount"] for row in rows if row["Record Type"] == "Money Entry"],
+            ["0", "400000", "50000", "0", "200000", "100000"],
+        )
+        income_rows = [
+            row for row in rows if row["Record Type"] == "Income Category Summary"
+        ]
+        self.assertEqual(
+            [(row["Category"], row["Income Category Total"]) for row in income_rows],
+            [
+                ("Income", "0"),
+                ("Salary", "450000"),
+                ("Design", "100000"),
+                ("Income", "0"),
+                ("Project", "200000"),
+            ],
+        )
+        self.assertTrue(any(row["Sub Balance Name"] == "Food" for row in rows))
+        category_balance_rows = [
+            row for row in rows
+            if row["Record Type"] == "Sub-Balance Category Balance"
+        ]
+        self.assertTrue(
+            any(
+                row["Category"] == "Sub Food"
+                and row["Category Allocated Amount"] == "25000"
+                and row["Category Actual Spending"] == "5000"
+                and row["Category Remaining Balance"] == "20000"
+                for row in category_balance_rows
+            )
+        )
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        EMAIL_HOST_USER="configured@example.com",
+        EMAIL_HOST_PASSWORD="configured",
+    )
+    def test_selected_full_report_email_succeeds_manually(self):
+        sub_balance = self.salary.sub_balances.get(name="Food")
+        SubBalanceAllocation.objects.create(
+            sub_balance=sub_balance, category="Sub Groceries", amount=25000
+        )
+        sub_category = BudgetCategory.objects.create(
+            budget_month=self.salary,
+            sub_balance=sub_balance,
+            name="Sub Groceries",
+            estimated_amount=Decimal("30000"),
+        )
+        DailyExpense.objects.create(
+            budget_month=self.salary,
+            sub_balance=sub_balance,
+            category=sub_category,
+            expense_date=date(2026, 11, 6),
+            amount=Decimal("5000"),
+        )
+        response = self.client.post(
+            reverse("budget:reports"),
+            {
+                "action": "email_report",
+                "month": "2026-11",
+                "main_balance_ids": [str(self.salary.pk)],
+            },
+            follow=True,
+        )
+
+        self.assertContains(response, f"Monthly report sent to {self.auth_user.email}.")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.auth_user.email])
+        self.assertIn("Pocket Money Report", mail.outbox[0].subject)
+        self.assertIn(
+            'src="cid:pmms-logo"',
+            mail.outbox[0].alternatives[0][0],
+        )
+        self.assertIn("Income by Category", mail.outbox[0].alternatives[0][0])
+        self.assertIn("Salary", mail.outbox[0].alternatives[0][0])
+        self.assertIn("Category balances", mail.outbox[0].alternatives[0][0])
+        self.assertIn("25,000 MMK", mail.outbox[0].alternatives[0][0])
+        self.assertIn("20,000 MMK", mail.outbox[0].alternatives[0][0])
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        EMAIL_HOST_USER="configured@example.com",
+        EMAIL_HOST_PASSWORD="configured",
+    )
+    def test_sub_balance_report_email_shows_category_balance(self):
+        from budget.services.email_service import send_sub_balance_report_email
+
+        sub_balance = self.salary.sub_balances.get(name="Food")
+        SubBalanceAllocation.objects.create(
+            sub_balance=sub_balance, category="Sub Groceries", amount=25000
+        )
+        category = BudgetCategory.objects.create(
+            budget_month=self.salary,
+            sub_balance=sub_balance,
+            name="Sub Groceries",
+            estimated_amount=Decimal("30000"),
+        )
+        DailyExpense.objects.create(
+            budget_month=self.salary,
+            sub_balance=sub_balance,
+            category=category,
+            expense_date=date(2026, 11, 7),
+            amount=Decimal("5000"),
+        )
+
+        self.assertTrue(send_sub_balance_report_email(sub_balance))
+        html = mail.outbox[0].alternatives[0][0]
+        self.assertIn("Category balances", html)
+        self.assertIn("Sub Groceries", html)
+        self.assertIn("25,000 MMK", html)
+        self.assertIn("5,000 MMK", html)
+        self.assertIn("20,000 MMK", html)
+
+    def test_pdf_generation_returns_a_viewable_pdf_for_selected_balances(self):
+        response = self.client.post(
+            reverse("budget:reports"),
+            {
+                "action": "pdf",
+                "month": "2026-11",
+                "main_balance_ids": [str(self.salary.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("inline;", response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF-"))
+        self.assertIn(b"/Subtype /Image", response.content)
+
+    def test_xlsx_export_includes_branding_image_and_project_colors(self):
+        from openpyxl import load_workbook
+
+        response = self.client.post(
+            reverse("budget:reports"),
+            {
+                "action": "xlsx",
+                "month": "2026-11",
+                "main_balance_ids": [str(self.salary.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertTrue(response.content.startswith(b"PK"))
+        worksheet = load_workbook(BytesIO(response.content)).active
+        self.assertEqual(worksheet["B1"].value, "Pocket Money Management System")
+        self.assertEqual(worksheet["A5"].value, "Organization")
+        self.assertIn(worksheet["A5"].fill.fgColor.rgb, ("FF092D72", "00092D72"))
+        self.assertEqual(len(worksheet._images), 1)
+
+    def test_report_rejects_another_users_main_balance_id(self):
+        other_user = User.objects.create_user(
+            username="private-report-user",
+            email="private-report-user@example.com",
+            password="Passw0rd!x",
+        )
+        other_profile = PocketUser.objects.create(
+            name="Private User",
+            email=other_user.email,
+            auth_user=other_user,
+        )
+        other_balance = Balance.objects.create(user=other_profile, name="Private Wallet")
+        other_month = BudgetMonth.objects.create(
+            user=other_profile,
+            balance=other_balance,
+            name="Private",
+            year=2026,
+            month=11,
+            total_money=Decimal("0"),
+        )
+
+        response = self.client.post(
+            reverse("budget:reports"),
+            {
+                "action": "csv",
+                "month": "2026-11",
+                "main_balance_ids": [str(other_month.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(
+            response, "You do not have permission to view this report.", status_code=403
+        )

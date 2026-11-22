@@ -23,7 +23,7 @@ def sub_balance_15day_key(sub_balance_id: int) -> str:
 
 def process_sub_balance_schedules(today=None) -> dict:
     today = today or timezone.localdate()
-    result = {"sent": [], "skipped": []}
+    result = {"sent": [], "skipped": [], "failed": []}
     sub_balances = SubBalance.objects.select_related(
         "budget_month", "budget_month__user"
     ).all()
@@ -52,4 +52,5 @@ def process_sub_balance_schedules(today=None) -> dict:
                 budget_month_id=sub_balance.budget_month_id, report_type=key
             ).delete()
             result["skipped"].append(sub_balance.id)
+            result["failed"].append(sub_balance.id)
     return result

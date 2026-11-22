@@ -1,0 +1,44 @@
+{% extends "budget/base.html" %}
+{% block title %}{% if is_create %}Add{% else %}Edit{% endif %} Money Entry - Pocket Money{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto p-4 md:p-8">
+  <p class="text-sm mb-4"><a class="text-blue-600 hover:underline" href="{% url 'budget:main_balance_detail' main_balance.id %}">← {{ main_balance.name|default:main_balance.category|default:"Main Balance" }}</a></p>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <h1 class="text-2xl font-bold mb-2">{% if is_create %}Add Money Entry{% else %}Edit Money Entry{% endif %}</h1>
+    <p class="text-sm text-gray-500 mb-5">{{ main_balance.month_label }}</p>
+    <form method="post" class="js-one-shot-form">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+      <div class="mb-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700" role="alert">
+        {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+      </div>
+      {% endif %}
+      {% for field in form %}
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}<p class="text-sm text-red-600 mt-1">{{ error }}</p>{% endfor %}
+      </div>
+      {% endfor %}
+      <button type="submit" data-loading-text="{% if is_create %}Adding...{% else %}Saving...{% endif %}" class="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-5 py-2.5 rounded-lg">{% if is_create %}Add Entry{% else %}Save Changes{% endif %}</button>
+      <a class="ml-3 text-gray-600 hover:underline" href="{% url 'budget:main_balance_detail' main_balance.id %}">Cancel</a>
+    </form>
+  </div>
+</div>
+<script>
+document.querySelectorAll('.js-one-shot-form').forEach(function(form) {
+  form.addEventListener('submit', function(event) {
+    if (form.dataset.submitting === 'true') {
+      event.preventDefault();
+      return;
+    }
+    form.dataset.submitting = 'true';
+    const button = event.submitter || form.querySelector('button[type="submit"]');
+    if (button) {
+      button.disabled = true;
+      button.textContent = button.dataset.loadingText || 'Saving...';
+    }
+  });
+});
+</script>
+{% endblock %}

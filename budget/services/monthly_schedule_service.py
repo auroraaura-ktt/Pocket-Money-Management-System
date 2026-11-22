@@ -37,7 +37,7 @@ from django.utils import timezone
 from django.utils.html import escape
 
 from budget.currency import format_mmk
-from budget.models import BudgetCategory, BudgetMonth, ReportEmailLog
+from budget.models import BudgetCategory, BudgetMonth, DailyExpense, ReportEmailLog
 from budget.services.email_service import (
     # Reuse the private SMTP sender so the from-name / SMTP handling is
     # identical to every other report email in the project.
@@ -74,8 +74,14 @@ def _previous_month(year: int, month: int) -> tuple[int, int]:
 
 
 def _already_sent(budget_month_id: int, report_type: str) -> bool:
+    budget_month = BudgetMonth.objects.filter(pk=budget_month_id).first()
+    if budget_month is None:
+        return False
     return ReportEmailLog.objects.filter(
-        budget_month_id=budget_month_id, report_type=report_type
+        budget_month__user_id=budget_month.user_id,
+        budget_month__year=budget_month.year,
+        budget_month__month=budget_month.month,
+        report_type=report_type,
     ).exists()
 
 
@@ -85,13 +91,32 @@ def _log_sent(budget_month_id: int, report_type: str) -> None:
     )
 
 
+def _one_balance_per_month(budget_months):
+    seen = set()
+    for budget_month in budget_months.order_by("user_id", "year", "month", "id"):
+        key = (budget_month.user_id, budget_month.year, budget_month.month)
+        if key not in seen:
+            seen.add(key)
+            yield budget_month
+
+
+def _month_balance_ids(budget_month: BudgetMonth) -> list[int]:
+    return list(
+        BudgetMonth.objects.filter(
+            user_id=budget_month.user_id,
+            year=budget_month.year,
+            month=budget_month.month,
+        ).values_list("id", flat=True)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Schedule A — monthly case report for the previous calendar month (day 1)
 # ---------------------------------------------------------------------------
 def send_previous_month_report(today: date, force: bool = False) -> dict:
     """Generate and email the monthly report for the previous calendar month."""
     year, month = _previous_month(today.year, today.month)
-    results = {"sent": [], "skipped": []}
+    results = {"sent": [], "skipped": [], "failed": []}
 
     budget_months = BudgetMonth.objects.select_related("user").filter(
         year=year, month=month
@@ -100,10 +125,12 @@ def send_previous_month_report(today: date, force: bool = False) -> dict:
         results["skipped"].append(f"No budget months for {year}-{month:02d}")
         return results
 
-    for budget_month in budget_months:
+    for budget_month in _one_balance_per_month(budget_months):
+        related_month_ids = _month_balance_ids(budget_month)
         if force:
             ReportEmailLog.objects.filter(
-                budget_month=budget_month, report_type=MONTHLY_PREVIOUS
+                budget_month_id__in=related_month_ids,
+                report_type=MONTHLY_PREVIOUS,
             ).delete()
         elif _already_sent(budget_month.id, MONTHLY_PREVIOUS):
             results["skipped"].append(f"{budget_month.month_label} — already sent")
@@ -117,6 +144,7 @@ def send_previous_month_report(today: date, force: bool = False) -> dict:
                 "Failed to generate monthly report for %s", budget_month.month_label
             )
             results["skipped"].append(f"{budget_month.month_label} — report error")
+            results["failed"].append(f"{budget_month.month_label} — report error")
             continue
 
         if send_monthly_report_email(user.email, user.name, report):
@@ -125,6 +153,7 @@ def send_previous_month_report(today: date, force: bool = False) -> dict:
         else:
             # Not logged on purpose so the send can be retried later.
             results["skipped"].append(f"{budget_month.month_label} — email not sent")
+            results["failed"].append(f"{budget_month.month_label} — email not sent")
 
     return results
 
@@ -139,12 +168,13 @@ def _no_estimate_category_spending(
     """Categories with no present estimated money (estimated_amount == 0) that
     recorded actual spending within [start_date, end_date]."""
     rows: list[dict] = []
+    monthly_month_ids = _month_balance_ids(budget_month)
     categories = BudgetCategory.objects.filter(
-        budget_month=budget_month, estimated_amount=0
+        budget_month_id__in=monthly_month_ids, estimated_amount=0
     ).select_related("sub_balance")
     for category in categories:
         actual = _get_total_actual_spent(
-            budget_month.id,
+            monthly_month_ids,
             category_id=category.id,
             start_date=start_date,
             end_date=end_date,
@@ -164,7 +194,14 @@ def _no_estimate_category_spending(
                     "actual": actual,
                 }
             )
-    return rows
+    combined_rows = {}
+    for row in rows:
+        key = (row["balance_name"], row["name"], row["is_direct"])
+        if key in combined_rows:
+            combined_rows[key]["actual"] += row["actual"]
+        else:
+            combined_rows[key] = row
+    return list(combined_rows.values())
 
 
 def _build_no_estimate_html(
@@ -173,6 +210,7 @@ def _build_no_estimate_html(
     rows: list[dict],
     direct_total: Decimal,
     sub_balance_total: Decimal,
+    transactions: list[dict],
 ) -> str:
     table_rows = "".join(
         "<tr>"
@@ -183,6 +221,21 @@ def _build_no_estimate_html(
         "</tr>"
         for row in rows
     )
+    transaction_rows = "".join(
+        "<tr>"
+        f"<td style='padding:8px;border-bottom:1px solid #e5e7eb;'>{escape(str(item['date']))}</td>"
+        f"<td style='padding:8px;border-bottom:1px solid #e5e7eb;'>{escape(item['balance_name'])}</td>"
+        f"<td style='padding:8px;border-bottom:1px solid #e5e7eb;'>{escape(item['category_name'])}</td>"
+        f"<td style='padding:8px;border-bottom:1px solid #e5e7eb;'>{escape(item['note'] or 'No note')}</td>"
+        f"<td style='padding:8px;text-align:right;border-bottom:1px solid #e5e7eb;'>{format_mmk(item['amount'])}</td>"
+        "</tr>"
+        for item in transactions
+    )
+    if not transaction_rows:
+        transaction_rows = (
+            "<tr><td colspan='5' style='padding:8px;'>"
+            "No matching transactions recorded.</td></tr>"
+        )
     return f"""
     <html><body style="font-family: Arial, sans-serif; max-width: 700px; margin: auto;">
     <h1 style="color: #2563eb;">Pocket Money — Spending Without Budget</h1>
@@ -214,6 +267,18 @@ def _build_no_estimate_html(
         </table>
     </div>
 
+    <h2>Transactions Included in This Report</h2>
+    <table style="width:100%;border-collapse:collapse;">
+      <tr style="background:#fed7aa;">
+        <th style="padding:8px;text-align:left;">Date</th>
+        <th style="padding:8px;text-align:left;">Balance</th>
+        <th style="padding:8px;text-align:left;">Category</th>
+        <th style="padding:8px;text-align:left;">Note</th>
+        <th style="padding:8px;text-align:right;">Amount spent</th>
+      </tr>
+      {transaction_rows}
+    </table>
+
     <p style="color: #6b7280; font-size: 0.9em; margin-top: 32px;">
         This report was generated by Pocket Money Management System.
     </p>
@@ -224,7 +289,7 @@ def _build_no_estimate_html(
 def send_no_estimate_overview(today: date, force: bool = False) -> dict:
     """Email an overall report of no-estimate spending for the current month's
     first half (days 1-15)."""
-    results = {"sent": [], "skipped": []}
+    results = {"sent": [], "skipped": [], "failed": []}
     start_date = date(today.year, today.month, 1)
     end_date = date(today.year, today.month, FIRST_HALF_END_DAY)
 
@@ -240,10 +305,12 @@ def send_no_estimate_overview(today: date, force: bool = False) -> dict:
     month_name = settings.MONTH_NAMES[today.month]
     period_label = f"{month_name} {today.year} (Days 1-{FIRST_HALF_END_DAY})"
 
-    for budget_month in budget_months:
+    for budget_month in _one_balance_per_month(budget_months):
+        related_month_ids = _month_balance_ids(budget_month)
         if force:
             ReportEmailLog.objects.filter(
-                budget_month=budget_month, report_type=NO_ESTIMATE_FIRST_HALF
+                budget_month_id__in=related_month_ids,
+                report_type=NO_ESTIMATE_FIRST_HALF,
             ).delete()
         elif _already_sent(budget_month.id, NO_ESTIMATE_FIRST_HALF):
             results["skipped"].append(f"{budget_month.month_label} — already sent")
@@ -256,6 +323,32 @@ def send_no_estimate_overview(today: date, force: bool = False) -> dict:
             )
             continue
 
+        month_ids = _month_balance_ids(budget_month)
+        no_estimate_category_ids = BudgetCategory.objects.filter(
+            budget_month_id__in=month_ids, estimated_amount=0
+        ).values_list("id", flat=True)
+        transactions = [
+            {
+                "date": expense.expense_date,
+                "balance_name": (
+                    expense.sub_balance.name
+                    if expense.sub_balance_id
+                    else "Main Balance"
+                ),
+                "category_name": expense.category.name,
+                "note": expense.note,
+                "amount": abs(expense.amount),
+            }
+            for expense in DailyExpense.objects.filter(
+                budget_month_id__in=month_ids,
+                category_id__in=no_estimate_category_ids,
+                expense_date__gte=start_date,
+                expense_date__lte=end_date,
+            )
+            .select_related("category", "sub_balance")
+            .order_by("expense_date", "id")
+        ]
+
         direct_total = sum(
             (row["actual"] for row in rows if row["is_direct"]),
             Decimal("0"),
@@ -267,7 +360,12 @@ def send_no_estimate_overview(today: date, force: bool = False) -> dict:
         user = budget_month.user
         subject = f"Pocket Money — Spending Without Budget ({period_label})"
         html = _build_no_estimate_html(
-            user.name, period_label, rows, direct_total, sub_balance_total
+            user.name,
+            period_label,
+            rows,
+            direct_total,
+            sub_balance_total,
+            transactions,
         )
 
         if _send_email(user.email, subject, html):
@@ -276,6 +374,7 @@ def send_no_estimate_overview(today: date, force: bool = False) -> dict:
         else:
             # Not logged on purpose so the send can be retried later.
             results["skipped"].append(f"{budget_month.month_label} — email not sent")
+            results["failed"].append(f"{budget_month.month_label} — email not sent")
 
     return results
 
@@ -293,11 +392,12 @@ def process_monthly_schedules(
     automated email.
     """
     today = today or timezone.localdate()
-    results = {"sent": [], "skipped": []}
+    results = {"sent": [], "skipped": [], "failed": []}
 
     def _merge(sub: dict) -> None:
         results["sent"].extend(sub.get("sent", []))
         results["skipped"].extend(sub.get("skipped", []))
+        results["failed"].extend(sub.get("failed", []))
 
     if force or today.day == MONTHLY_PREVIOUS_DAY:
         try:
@@ -305,6 +405,7 @@ def process_monthly_schedules(
         except Exception:
             logger.exception("Schedule A (previous-month report) failed")
             results["skipped"].append("monthly previous — schedule error")
+            results["failed"].append("monthly previous — schedule error")
 
     if force or today.day == NO_ESTIMATE_FIRST_HALF_DAY:
         try:
@@ -312,5 +413,6 @@ def process_monthly_schedules(
         except Exception:
             logger.exception("Schedule B (no-estimate overview) failed")
             results["skipped"].append("no-estimate overview — schedule error")
+            results["failed"].append("no-estimate overview — schedule error")
 
     return results
