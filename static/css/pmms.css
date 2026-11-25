@@ -201,6 +201,76 @@ a.bg-green-600:hover {
     max-width: 100%;
 }
 
+/* Form controls follow the home page palette without changing their layout. */
+.pmms-dashboard form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="submit"]),
+.pmms-dashboard form select,
+.pmms-dashboard form textarea {
+    border-color: #cfdef8;
+    border-radius: 10px;
+    color: #17376e;
+    background-color: #fff;
+    transition: border-color .16s, box-shadow .16s, background-color .16s;
+}
+
+.pmms-dashboard form input::placeholder,
+.pmms-dashboard form textarea::placeholder {
+    color: #8a9cba;
+}
+
+.pmms-dashboard form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="submit"]):focus,
+.pmms-dashboard form select:focus,
+.pmms-dashboard form textarea:focus {
+    outline: 0;
+    border-color: #7894ff;
+    box-shadow: 0 0 0 3px #7894ff24;
+}
+
+.pmms-dashboard form label,
+.pmms-dashboard form legend {
+    color: #17376e;
+}
+
+.pmms-dashboard form input[type="checkbox"],
+.pmms-dashboard form input[type="radio"] {
+    accent-color: #655cff;
+}
+
+.pmms-dashboard form button[type="submit"] {
+    border-radius: 10px;
+    box-shadow: 0 5px 14px #315fff1c;
+    transition: box-shadow .16s, filter .16s;
+}
+
+.pmms-dashboard form button[type="submit"]:hover:not(:disabled) {
+    filter: saturate(1.08);
+    box-shadow: 0 7px 17px #315fff2b;
+}
+
+.pmms-dashboard form button[type="submit"][class~="bg-blue-600"] {
+    border-color: transparent;
+    color: #fff;
+    background: linear-gradient(110deg, #315fff, #8551f6);
+}
+
+.pmms-dashboard form button[type="submit"][class~="bg-green-600"] {
+    border-color: transparent;
+    color: #fff;
+    background: linear-gradient(110deg, #20a66a, #31bd82);
+}
+
+.pmms-dashboard form button[type="submit"][class~="bg-red-600"],
+.pmms-dashboard form button[type="submit"].wallet-group-delete {
+    border: 1px solid #fecdd3;
+    color: #be123c;
+    background: #fff1f2;
+    box-shadow: none;
+}
+
+.pmms-dashboard form button[type="submit"].wallet-group-delete:hover:not(:disabled) {
+    background: #ffe4e6;
+    box-shadow: none;
+}
+
 .admin-dashboard .overflow-x-auto,
 .admin-users .overflow-x-auto {
     overflow-x: auto;

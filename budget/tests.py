@@ -1816,6 +1816,104 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.context["expenses"]), 60)
 
+    def test_expense_month_select_shows_balance_name_and_only_its_totals(self):
+        self.budget_month.name = "August Salary"
+        self.budget_month.save(update_fields=["name"])
+        other_month = BudgetMonth.objects.create(
+            user=self.user,
+            balance=self.balance,
+            name="August Freelance",
+            year=2026,
+            month=8,
+            total_money=Decimal("750000"),
+        )
+        InputBalance.objects.create(
+            budget_month=other_month,
+            category="Freelance",
+            amount=Decimal("750000"),
+        )
+        expected_available = sum(
+            other_month.input_balances.values_list("amount", flat=True),
+            Decimal("0"),
+        )
+
+        budget_response = self.client.get(
+            reverse("budget:dashboard"), {"tab": "budget"}
+        )
+        self.assertEqual(budget_response.status_code, 200)
+        for selector_id in (
+            "period-budget-period",
+            "period-budget-main-balance",
+            "period-budget-wallet-group",
+            "custom-budget-period",
+            "custom-budget-main-balance",
+            "custom-budget-wallet-group",
+        ):
+            self.assertContains(budget_response, f'id="{selector_id}"')
+
+        month_response = self.client.get(
+            reverse("budget:dashboard"),
+            {
+                "tab": "expenses",
+                "expense_type": "main",
+                "expense_period": "2026-08",
+            },
+        )
+        self.assertEqual(month_response.status_code, 200)
+        self.assertEqual(len(month_response.context["expense_month_choices"]), 1)
+        self.assertEqual(
+            len(month_response.context["expense_main_balance_choices"]), 2
+        )
+
+        for expense_type in ("main", "sub"):
+            response = self.client.get(
+                reverse("budget:dashboard"),
+                {
+                    "tab": "expenses",
+                    "expense_type": expense_type,
+                    "expense_period": "2026-08",
+                    "expense_month": other_month.id,
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.context["expense_comparison_month"], other_month)
+            self.assertEqual(response.context["selected_expense_period"], "2026-08")
+            self.assertEqual(
+                response.context["expense_report"].total_money, expected_available
+            )
+            self.assertContains(response, "August Salary")
+            self.assertContains(response, "August Freelance")
+            self.assertContains(response, "Main Balance:")
+            self.assertNotContains(response, "Test User — August 2026")
+            self.assertContains(response, 'id="expense-entry-period"')
+            self.assertContains(response, 'id="expense-entry-main-balance"')
+            self.assertContains(response, 'id="expense-entry-wallet-group"')
+
+        category = other_month.categories.get(period_index=1)
+        add_response = self.client.post(
+            f"{reverse('budget:dashboard')}?tab=expenses&expense_type=main",
+            {
+                "action": "add_expense",
+                "expense_type": "main",
+                "budget_month": other_month.id,
+                "budget_period_choice": "2026-08",
+                "main_balance_choice": "name:August Freelance",
+                "wallet_group_choice": str(self.balance.id),
+                "category": category.id,
+                "expense_date": "2026-08-05",
+                "amount": "500",
+            },
+        )
+        self.assertEqual(add_response.status_code, 302)
+        self.assertTrue(
+            DailyExpense.objects.filter(
+                budget_month=other_month,
+                category=category,
+                amount=Decimal("500"),
+            ).exists()
+        )
+
     def test_dashboard_debug_rows_include_period_bucket_for_each_expense(self):
         category = self.budget_month.categories.get(period_index=1)
         DailyExpense.objects.create(

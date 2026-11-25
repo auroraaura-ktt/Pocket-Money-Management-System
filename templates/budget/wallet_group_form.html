@@ -1,0 +1,26 @@
+{% extends "budget/base.html" %}
+
+{% block title %}Edit Wallet Group{% endblock %}
+
+{% block content %}
+<div class="pmms-dashboard mx-auto max-w-2xl p-4 md:p-8">
+  <a href="{% url 'budget:wallet_group_detail' wallet_group.id %}" class="inline-flex items-center gap-2 text-sm font-semibold text-blue-700 hover:text-purple-700">← Back to {{ wallet_group.name }}</a>
+  <section class="mt-5 rounded-2xl border border-blue-100 bg-white p-6 shadow-lg shadow-blue-100/40 md:p-8">
+    <p class="text-sm font-semibold uppercase tracking-wider text-purple-600">Wallet Group</p>
+    <h1 class="mt-2 text-2xl font-bold text-blue-950">Edit Wallet Group</h1>
+    <form method="post" class="mt-6 space-y-5">
+      {% csrf_token %}
+      <div>
+        <label class="mb-2 block text-sm font-semibold text-blue-950" for="{{ form.name.id_for_label }}">Wallet Group name</label>
+        {{ form.name }}
+        {% for error in form.name.errors %}<p class="mt-1 text-sm text-red-600">{{ error }}</p>{% endfor %}
+      </div>
+      {% if form.non_field_errors %}<p class="text-sm text-red-600">{{ form.non_field_errors.0 }}</p>{% endif %}
+      <div class="flex flex-wrap gap-3">
+        <button type="submit" class="inline-flex min-h-11 items-center rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-5 py-2.5 font-semibold text-white shadow-md shadow-blue-200">Save Changes</button>
+        <a href="{% url 'budget:wallet_group_detail' wallet_group.id %}" class="inline-flex min-h-11 items-center rounded-xl border border-blue-200 bg-white px-5 py-2.5 font-semibold text-blue-700">Cancel</a>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}

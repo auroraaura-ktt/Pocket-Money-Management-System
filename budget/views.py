@@ -523,6 +523,44 @@ def main_balance_detail(request, month_id):
 
 
 @login_required
+def wallet_group_detail(request, balance_id):
+    pocket_user = _current_pocket_user(request)
+    balance = Balance.objects.filter(pk=balance_id, user=pocket_user).first()
+    if balance is None:
+        messages.error(request, "The requested Wallet Group could not be found.")
+        return _dashboard_redirect("setup")
+    months = balance.months.prefetch_related("sub_balances").order_by("-year", "-month", "name")
+    return render(
+        request,
+        "budget/wallet_group_detail.html",
+        {"wallet_group": balance, "budget_months": months},
+    )
+
+
+@login_required
+def edit_wallet_group(request, balance_id):
+    pocket_user = _current_pocket_user(request)
+    balance = Balance.objects.filter(pk=balance_id, user=pocket_user).first()
+    if balance is None:
+        messages.error(request, "The requested Wallet Group could not be found.")
+        return _dashboard_redirect("setup")
+    form = BalanceForm(request.POST or None, instance=balance)
+    if request.method == "POST" and form.is_valid():
+        try:
+            form.save()
+        except IntegrityError:
+            form.add_error("name", "A Wallet Group with this name already exists.")
+        else:
+            messages.success(request, "Wallet Group updated.")
+            return redirect("budget:wallet_group_detail", balance_id=balance.pk)
+    return render(
+        request,
+        "budget/wallet_group_form.html",
+        {"form": form, "wallet_group": balance},
+    )
+
+
+@login_required
 def create_input_balance(request, month_id):
     pocket_user = _current_pocket_user(request)
     budget_month = BudgetMonth.objects.filter(
@@ -1639,13 +1677,43 @@ def dashboard(request):
             else "main"
         )
     expense_month_id = request.GET.get("expense_month")
-    if action in {"add_expense", "update_expense", "create_expense_category"}:
+    expense_period = request.GET.get("expense_period", "")
+    expense_actions = {"add_expense", "update_expense", "create_expense_category"}
+    if action in expense_actions:
         expense_month_id = request.POST.get("budget_month") or expense_month_id
-    selected_expense_month = (
-        _scoped_instance(month_qs, expense_month_id)
-        if expense_month_id
-        else month_qs.first()
-    )
+        selected_expense_month = _scoped_instance(month_qs, expense_month_id)
+    else:
+        selected_expense_month = None
+        if expense_period:
+            try:
+                period_year, period_month = (
+                    int(part) for part in expense_period.split("-", 1)
+                )
+            except (TypeError, ValueError):
+                period_year = period_month = None
+
+            if period_year and 1 <= period_month <= 12:
+                period_months = month_qs.filter(
+                    year=period_year,
+                    month=period_month,
+                )
+                requested_month = _scoped_instance(month_qs, expense_month_id)
+                if requested_month and (
+                    requested_month.year,
+                    requested_month.month,
+                ) == (period_year, period_month):
+                    selected_expense_month = requested_month
+                else:
+                    selected_expense_month = period_months.order_by(
+                        "name", "id"
+                    ).first()
+
+        if selected_expense_month is None:
+            selected_expense_month = (
+                _scoped_instance(month_qs, expense_month_id)
+                if expense_month_id
+                else month_qs.first()
+            )
     requested_sub_balance_id = request.GET.get("sub_balance")
     if action in {"add_expense", "update_expense", "create_expense_category"}:
         requested_sub_balance_id = (
@@ -1660,6 +1728,90 @@ def dashboard(request):
             requested_sub_balance_id,
         )
 
+    expense_month_choices = []
+    expense_selector_records = []
+    seen_periods = set()
+    for budget_month in month_qs.order_by("-year", "-month", "id"):
+        period_key = f"{budget_month.year:04d}-{budget_month.month:02d}"
+        if period_key not in seen_periods:
+            expense_month_choices.append(
+                {"key": period_key, "label": budget_month.month_label}
+            )
+            seen_periods.add(period_key)
+        expense_selector_records.append(
+            {
+                "id": budget_month.id,
+                "period": period_key,
+                "main_balance": f"name:{budget_month.name}",
+                "main_balance_label": budget_month.name or "Unnamed Main Balance",
+                "wallet_group": (
+                    str(budget_month.balance_id)
+                    if budget_month.balance_id
+                    else "none"
+                ),
+                "wallet_group_label": (
+                    budget_month.balance.name
+                    if budget_month.balance_id
+                    else "No Wallet Group"
+                ),
+            }
+        )
+
+    selected_expense_period = (
+        f"{selected_expense_month.year:04d}-{selected_expense_month.month:02d}"
+        if selected_expense_month
+        else ""
+    )
+    selected_main_balance_key = (
+        f"name:{selected_expense_month.name}" if selected_expense_month else ""
+    )
+    selected_wallet_group_key = ""
+    if selected_expense_month:
+        selected_wallet_group_key = (
+            str(selected_expense_month.balance_id)
+            if selected_expense_month.balance_id
+            else "none"
+        )
+    expense_main_balance_choices = []
+    expense_wallet_group_choices = []
+    if selected_expense_month:
+        selected_period_months = month_qs.filter(
+            year=selected_expense_month.year,
+            month=selected_expense_month.month,
+        ).order_by("name", "id")
+        main_balance_choices_by_key = {}
+        for budget_month in selected_period_months:
+            key = f"name:{budget_month.name}"
+            main_balance_choices_by_key.setdefault(
+                key,
+                budget_month.name or "Unnamed Main Balance",
+            )
+        expense_main_balance_choices = [
+            {"value": key, "label": label}
+            for key, label in main_balance_choices_by_key.items()
+        ]
+        wallet_group_choices_by_key = {}
+        for budget_month in selected_period_months:
+            if f"name:{budget_month.name}" != selected_main_balance_key:
+                continue
+            wallet_group_key = (
+                str(budget_month.balance_id)
+                if budget_month.balance_id
+                else "none"
+            )
+            wallet_group_choices_by_key.setdefault(
+                wallet_group_key,
+                (
+                    budget_month.balance.name
+                    if budget_month.balance_id
+                    else "No Wallet Group"
+                ),
+            )
+        expense_wallet_group_choices = [
+            {"value": key, "label": label}
+            for key, label in wallet_group_choices_by_key.items()
+        ]
+
     balance_form = BalanceForm()
     budget_form = BudgetMonthForm(balance_qs=balance_qs)
     input_balance_qs = InputBalance.objects.filter(
@@ -1668,13 +1820,25 @@ def dashboard(request):
     sub_balance_form = SubBalanceForm(
         month_qs=month_qs, input_balance_qs=input_balance_qs
     )
-    period_budget_form = PeriodBudgetForm(month_qs=month_qs)
+    budget_month_initial = (
+        {"budget_month": selected_expense_month}
+        if selected_expense_month
+        else {}
+    )
+    period_budget_form = PeriodBudgetForm(
+        initial=budget_month_initial,
+        month_qs=month_qs,
+    )
     custom_budget_form = CustomCategoryBudgetForm(
+        initial=budget_month_initial,
         month_qs=month_qs, category_qs=category_qs
     )
     expense_initial = {}
     if selected_expense_month:
         expense_initial["budget_month"] = selected_expense_month
+        expense_initial["budget_period_choice"] = selected_expense_period
+        expense_initial["main_balance_choice"] = selected_main_balance_key
+        expense_initial["wallet_group_choice"] = selected_wallet_group_key
     if selected_sub_balance:
         expense_initial["sub_balance"] = selected_sub_balance
     category_initial = {}
@@ -1688,11 +1852,26 @@ def dashboard(request):
         sub_balance_qs=sub_balance_qs,
         sub_balance_required=category_type == "sub",
     )
+    expense_form_options = {
+        "month_qs": month_qs,
+        "category_qs": category_qs,
+        "sub_balance_qs": sub_balance_qs,
+        "period_choices": [
+            (choice["key"], choice["label"])
+            for choice in expense_month_choices
+        ],
+        "main_balance_choices": [
+            (choice["value"], choice["label"])
+            for choice in expense_main_balance_choices
+        ],
+        "wallet_group_choices": [
+            (choice["value"], choice["label"])
+            for choice in expense_wallet_group_choices
+        ],
+    }
     expense_form = DailyExpenseForm(
         initial=expense_initial,
-        month_qs=month_qs,
-        category_qs=category_qs,
-        sub_balance_qs=sub_balance_qs,
+        **expense_form_options,
         sub_balance_required=expense_type == "sub",
     )
     category_update_form = CategoryBudgetUpdateForm(
@@ -2097,9 +2276,7 @@ def dashboard(request):
                     create_default_period_categories(budget_month_obj)
             expense_form = DailyExpenseForm(
                 request.POST,
-                month_qs=month_qs,
-                category_qs=category_qs,
-                sub_balance_qs=sub_balance_qs,
+                **expense_form_options,
                 sub_balance_required=expense_type == "sub",
             )
             if expense_form.is_valid():
@@ -2170,9 +2347,7 @@ def dashboard(request):
             expense_form = DailyExpenseForm(
                 post_data,
                 instance=expense_instance,
-                month_qs=month_qs,
-                category_qs=category_qs,
-                sub_balance_qs=sub_balance_qs,
+                **expense_form_options,
                 sub_balance_required=bool(expense_instance.sub_balance_id),
             )
             if expense_form.is_valid():
@@ -2377,7 +2552,10 @@ def dashboard(request):
 
         if expense_comparison_month:
             create_default_period_categories(expense_comparison_month)
-            expense_report = generate_monthly_report(expense_comparison_month.id)
+            expense_report = generate_monthly_report(
+                expense_comparison_month.id,
+                aggregate_same_month=False,
+            )
             period_comparisons = expense_report.period_reports
             expenses = expenses.filter(budget_month_id=expense_comparison_month.id)
             if expense_type == "sub":
@@ -2424,6 +2602,43 @@ def dashboard(request):
             create_default_period_categories(summary_month)
             summary_report = generate_monthly_report(summary_month.id)
 
+    period_budget_month_id = period_budget_form["budget_month"].value()
+    custom_budget_month_id = custom_budget_form["budget_month"].value()
+    period_budget_selected_month = (
+        _scoped_instance(month_qs, period_budget_month_id)
+        if period_budget_month_id
+        else selected_expense_month
+    )
+    custom_budget_selected_month = (
+        _scoped_instance(month_qs, custom_budget_month_id)
+        if custom_budget_month_id
+        else selected_expense_month
+    )
+
+    def selector_values(budget_month):
+        if not budget_month:
+            return "", "", ""
+        return (
+            f"{budget_month.year:04d}-{budget_month.month:02d}",
+            f"name:{budget_month.name}",
+            (
+                str(budget_month.balance_id)
+                if budget_month.balance_id
+                else "none"
+            ),
+        )
+
+    (
+        period_budget_selected_period,
+        period_budget_selected_main_balance,
+        period_budget_selected_wallet_group,
+    ) = selector_values(period_budget_selected_month)
+    (
+        custom_budget_selected_period,
+        custom_budget_selected_main_balance,
+        custom_budget_selected_wallet_group,
+    ) = selector_values(custom_budget_selected_month)
+
     return render(
         request,
         "budget/dashboard.html",
@@ -2445,6 +2660,21 @@ def dashboard(request):
             "categories": categories,
             "expenses": expenses,
             "expense_comparison_month": expense_comparison_month,
+            "expense_month_choices": expense_month_choices,
+            "selected_expense_period": selected_expense_period,
+            "selected_main_balance_key": selected_main_balance_key,
+            "selected_wallet_group_key": selected_wallet_group_key,
+            "expense_main_balance_choices": expense_main_balance_choices,
+            "expense_wallet_group_choices": expense_wallet_group_choices,
+            "expense_selector_records": expense_selector_records,
+            "period_budget_selected_month": period_budget_selected_month,
+            "custom_budget_selected_month": custom_budget_selected_month,
+            "period_budget_selected_period": period_budget_selected_period,
+            "period_budget_selected_main_balance": period_budget_selected_main_balance,
+            "period_budget_selected_wallet_group": period_budget_selected_wallet_group,
+            "custom_budget_selected_period": custom_budget_selected_period,
+            "custom_budget_selected_main_balance": custom_budget_selected_main_balance,
+            "custom_budget_selected_wallet_group": custom_budget_selected_wallet_group,
             "period_comparisons": period_comparisons,
             "expense_report": expense_report,
             "expense_debug_rows": expense_debug_rows,

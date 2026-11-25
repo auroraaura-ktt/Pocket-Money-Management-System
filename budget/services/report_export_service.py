@@ -164,16 +164,12 @@ CSV_COLUMNS = [
     "Report Title",
     "Record Type",
     "Month",
-    "Main Balance ID",
     "Main Balance Name",
-    "Money Entry ID",
     "Category",
     "Money Entry Amount",
     "Total Budget Estimated",
-    "Sub-Balance ID",
     "Sub Balance Name",
     "Sub-Balance Allocated Amount",
-    "Transaction ID",
     "Transaction Category",
     "Transaction Date",
     "Transaction Amount",
@@ -207,7 +203,6 @@ def build_report_csv(dataset):
             "Organization": "Pocket Money Management System",
             "Report Title": f"Monthly Financial Report — {dataset['month']}",
             "Month": dataset["month"],
-            "Main Balance ID": balance.pk,
             "Main Balance Name": record["display_name"],
             "Total Budget Estimated": record["predicted_amount"],
             "Main Balance Transaction Count": record["main_transaction_count"],
@@ -223,7 +218,6 @@ def build_report_csv(dataset):
                 {
                     **common,
                     "Record Type": "Money Entry",
-                    "Money Entry ID": entry.pk,
                     "Category": entry.category,
                     "Money Entry Amount": entry.amount,
                 }
@@ -246,7 +240,6 @@ def build_report_csv(dataset):
                 {
                     **common,
                     "Record Type": "Sub Balance",
-                    "Sub-Balance ID": sub_balance.pk,
                     "Sub Balance Name": sub_balance.name,
                     "Sub-Balance Allocated Amount": sub_detail["allocated_amount"],
                     "Sub-Balance Transaction Count": sub_detail["transaction_count"],
@@ -259,7 +252,6 @@ def build_report_csv(dataset):
                     {
                         **common,
                         "Record Type": "Sub-Balance Category Balance",
-                        "Sub-Balance ID": sub_balance.pk,
                         "Sub Balance Name": sub_balance.name,
                         "Category": category["name"],
                         "Balance Category Basis": category["basis"],
@@ -274,11 +266,9 @@ def build_report_csv(dataset):
                 {
                     **common,
                     "Record Type": "Expense",
-                    "Sub-Balance ID": expense.sub_balance_id or "",
                     "Sub Balance Name": (
                         expense.sub_balance.name if expense.sub_balance else ""
                     ),
-                    "Transaction ID": expense.pk,
                     "Transaction Category": expense.category.name,
                     "Transaction Date": expense.expense_date.isoformat(),
                     "Transaction Amount": abs(to_mmk(expense.amount)),
@@ -329,10 +319,6 @@ def build_report_xlsx(dataset):
     even_fill = PatternFill("solid", fgColor="FFFFFF")
     thin_blue = Side(style="thin", color="DCE9FF")
     number_columns = {
-        "Main Balance ID",
-        "Money Entry ID",
-        "Sub-Balance ID",
-        "Transaction ID",
         "Main Balance Transaction Count",
         "Sub-Balance Transaction Count",
     }
@@ -496,7 +482,6 @@ def build_report_pdf(dataset):
                     f"Main Balance: {escape(record['display_name'])}",
                     styles["Heading2"],
                 ),
-                Paragraph(f"Main Balance ID: {balance.pk}", styles["BodyText"]),
                 Paragraph("Money Entries", styles["Heading3"]),
             ]
         )
@@ -718,6 +703,11 @@ def _report_table(rows):
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5efff")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#092d72")),
                 ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#183263")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, 0), 12),
+                ("FONTSIZE", (0, 1), (-1, -1), 11),
+                ("LEADING", (0, 0), (-1, -1), 13),
                 ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#b7ccff")),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 6),

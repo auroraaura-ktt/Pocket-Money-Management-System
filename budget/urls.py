@@ -9,6 +9,8 @@ app_name = "budget"
 urlpatterns = [
     path("", views.home, name="home"),
     path("dashboard/", views.dashboard, name="dashboard"),
+    path("wallet-groups/<int:balance_id>/", views.wallet_group_detail, name="wallet_group_detail"),
+    path("wallet-groups/<int:balance_id>/edit/", views.edit_wallet_group, name="edit_wallet_group"),
     path("reports/", views.reports, name="reports"),
     path("audit-history/", views.audit_history, name="audit_history"),
     path(

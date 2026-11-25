@@ -41,6 +41,15 @@ def _primary_key_or_none(value):
         return None
 
 
+def _budget_month_choice_label(budget_month):
+    label = budget_month.name or budget_month.month_label
+    if budget_month.name and budget_month.name != budget_month.month_label:
+        label = f"{label} · {budget_month.month_label}"
+    if budget_month.balance_id:
+        label = f"{label} · {budget_month.balance.name}"
+    return label
+
+
 class UserForm(forms.ModelForm):
     class Meta:
         model = PocketUser
@@ -733,6 +742,7 @@ class ExpenseCategoryCreateForm(forms.Form):
         initial = kwargs.get("initial") or {}
         super().__init__(*args, **kwargs)
         self.fields["budget_month"].queryset = month_qs
+        self.fields["budget_month"].label_from_instance = _budget_month_choice_label
         self.fields["sub_balance"].queryset = sub_balance_qs
         self.fields["sub_balance"].required = self.sub_balance_required
         month_id = (
@@ -902,7 +912,7 @@ class CustomCategoryBudgetForm(forms.Form):
 
     budget_month = forms.ModelChoiceField(
         queryset=BudgetMonth.objects.select_related("user").all(),
-        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+        widget=forms.HiddenInput(attrs={"id": "custom-budget-month"}),
     )
     category = forms.ModelChoiceField(
         queryset=BudgetCategory.objects.none(),
@@ -1077,7 +1087,7 @@ class PeriodBudgetForm(forms.Form):
 
     budget_month = forms.ModelChoiceField(
         queryset=BudgetMonth.objects.select_related("user").all(),
-        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+        widget=forms.HiddenInput(attrs={"id": "period-budget-month"}),
     )
 
     def __init__(self, *args, **kwargs):
@@ -1194,6 +1204,40 @@ class PeriodBudgetForm(forms.Form):
 
 
 class DailyExpenseForm(forms.ModelForm):
+    budget_period_choice = forms.ChoiceField(
+        required=False,
+        choices=[("", "Select a Budget Month...")],
+        widget=forms.Select(
+            attrs={
+                "class": INPUT_CLASS,
+                "id": "expense-entry-period",
+                "required": True,
+            }
+        ),
+    )
+    main_balance_choice = forms.ChoiceField(
+        required=False,
+        choices=[("", "Select a Main Balance...")],
+        widget=forms.Select(
+            attrs={
+                "class": INPUT_CLASS,
+                "id": "expense-entry-main-balance",
+                "required": True,
+            }
+        ),
+    )
+    wallet_group_choice = forms.ChoiceField(
+        required=False,
+        choices=[("", "Select a Wallet Group...")],
+        widget=forms.Select(
+            attrs={
+                "class": INPUT_CLASS,
+                "id": "expense-entry-wallet-group",
+                "required": True,
+            }
+        ),
+    )
+
     class Meta:
         model = DailyExpense
         fields = [
@@ -1205,8 +1249,8 @@ class DailyExpenseForm(forms.ModelForm):
             "note",
         ]
         widgets = {
-            "budget_month": forms.Select(
-                attrs={"class": INPUT_CLASS, "id": "expense-budget-month"}
+            "budget_month": forms.HiddenInput(
+                attrs={"id": "expense-budget-month"}
             ),
             "sub_balance": forms.Select(
                 attrs={"class": INPUT_CLASS, "id": "expense-sub-balance"}
@@ -1234,10 +1278,29 @@ class DailyExpenseForm(forms.ModelForm):
         month_qs = kwargs.pop("month_qs", None)
         category_qs = kwargs.pop("category_qs", None)
         sub_balance_qs = kwargs.pop("sub_balance_qs", None)
+        period_choices = kwargs.pop("period_choices", [])
+        main_balance_choices = kwargs.pop("main_balance_choices", [])
+        wallet_group_choices = kwargs.pop("wallet_group_choices", [])
         sub_balance_required = kwargs.pop("sub_balance_required", False)
         super().__init__(*args, **kwargs)
+        self.month_qs = (
+            month_qs if month_qs is not None else BudgetMonth.objects.none()
+        )
+        self.fields["budget_period_choice"].choices = [
+            ("", "Select a Budget Month..."),
+            *period_choices,
+        ]
+        self.fields["main_balance_choice"].choices = [
+            ("", "Select a Main Balance..."),
+            *main_balance_choices,
+        ]
+        self.fields["wallet_group_choice"].choices = [
+            ("", "Select a Wallet Group..."),
+            *wallet_group_choices,
+        ]
         if month_qs is not None:
             self.fields["budget_month"].queryset = month_qs
+        self.fields["budget_month"].label_from_instance = _budget_month_choice_label
         self.fields["sub_balance"].queryset = SubBalance.objects.none()
         self.fields["sub_balance"].required = sub_balance_required
         self.fields["sub_balance"].empty_label = "Select a Sub-Balance..."
@@ -1329,6 +1392,23 @@ class DailyExpenseForm(forms.ModelForm):
         if amount is not None and amount <= 0:
             self.add_error("amount", "Expense amount must be greater than zero.")
 
+        selector_values = (
+            cleaned.get("budget_period_choice"),
+            cleaned.get("main_balance_choice"),
+            cleaned.get("wallet_group_choice"),
+        )
+        if budget_month and any(selector_values):
+            expected_values = (
+                f"{budget_month.year:04d}-{budget_month.month:02d}",
+                f"name:{budget_month.name}",
+                str(budget_month.balance_id) if budget_month.balance_id else "none",
+            )
+            if selector_values != expected_values:
+                self.add_error(
+                    None,
+                    "Budget Month, Main Balance, and Wallet Group must match.",
+                )
+
         if category and expense_date and category.period_index is not None:
             expected_index = period_index_for_day(expense_date.day)
             if category.period_index != expected_index:
@@ -1392,6 +1472,7 @@ class UnexpectedMoneyForm(forms.ModelForm):
         self.fields["category"].empty_label = "Select category..."
         if month_qs is not None:
             self.fields["budget_month"].queryset = month_qs
+        self.fields["budget_month"].label_from_instance = _budget_month_choice_label
 
         month_id = None
         if self.data.get("budget_month"):

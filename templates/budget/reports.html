@@ -2,7 +2,7 @@
 {% load static currency_tags %}
 
 {% block title %}Reports - Pocket Money{% endblock %}
-{% block page_styles %}<link rel="stylesheet" href="{% static 'css/reports.css' %}?v=5">{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{% static 'css/reports.css' %}?v=6">{% endblock %}
 
 {% block content %}
 <div class="reports-page">
@@ -89,7 +89,7 @@
 
         {% for item in report_dataset.main_balances %}
         <article class="report-balance-card">
-            <div class="report-balance-header"><div><span class="report-card-kicker">MAIN BALANCE {{ forloop.counter|stringformat:"02d" }}</span><h3>{{ item.display_name }}</h3><p>{{ item.main_balance.month_label }} <span>·</span> ID {{ item.main_balance.id }}</p></div><div class="report-balance-total"><small>Available money</small><strong>{{ item.total_money|mmk }}</strong></div></div>
+            <div class="report-balance-header"><div><span class="report-card-kicker">MAIN BALANCE {{ forloop.counter|stringformat:"02d" }}</span><h3>{{ item.display_name }}</h3><p>{{ item.main_balance.month_label }}</p></div><div class="report-balance-total"><small>Available money</small><strong>{{ item.total_money|mmk }}</strong></div></div>
             <div class="report-balance-stats"><div><span>Predicted amount</span><strong>{{ item.predicted_amount|mmk }}</strong></div><div><span>Main Balance spent · {{ item.main_transaction_count }} transactions</span><strong>{{ item.total_expense|mmk }}</strong></div><div><span>Sub-Balances spent · {{ item.sub_transaction_count }} transactions</span><strong>{{ item.sub_actual_spent|mmk }}</strong></div><div><span>Combined spending</span><strong>{{ item.combined_expense|mmk }}</strong></div><div><span>Main Balance remaining after direct spending</span><strong class="{% if item.remaining_balance < 0 %}report-negative{% else %}report-positive{% endif %}">{{ item.remaining_balance|mmk }}</strong></div></div>
 
             <details class="report-detail" open><summary>Money entries <span>Total money: {{ item.total_money|mmk }}</span></summary>

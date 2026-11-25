@@ -4,7 +4,7 @@
 {% block title %}Dashboard - Pocket Money{% endblock %}
 
 {% block content %}
-<div class="max-w-7xl mx-auto p-4 md:p-8">
+<div class="pmms-dashboard max-w-7xl mx-auto p-4 md:p-8">
     <h1 class="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
     <p class="text-gray-500 mb-8">Manage your budget by category and track daily expenses.</p>
 
@@ -24,20 +24,20 @@
             <h4 class="text-sm font-semibold text-gray-700 mb-2">Your balances</h4>
             <ul class="space-y-2 mb-5">
                 {% for balance in balances %}
-                <li class="flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200">
-                    <span class="font-medium text-gray-800">
-                        💰 {{ balance.name }}
-                        <span class="text-xs text-gray-400">({{ balance.months.count }} month{{ balance.months.count|pluralize }})</span>
-                    </span>
-                    <form method="post" class="inline-block">
+                <li class="flex flex-col gap-3 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50/70 to-purple-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <a class="min-w-0 font-semibold text-blue-900 hover:text-purple-700 hover:underline" href="{% url 'budget:wallet_group_detail' balance.id %}">
+                        <span class="block truncate">{{ balance.name }}</span>
+                        <span class="mt-1 block text-xs font-normal text-blue-600">{{ balance.months.count }} Main Balance{{ balance.months.count|pluralize }}</span>
+                    </a>
+                    <form method="post" class="inline-flex shrink-0 items-center gap-2">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="delete_balance">
                         <input type="hidden" name="balance_id" value="{{ balance.id }}">
-                        <button type="submit" class="text-xs text-red-600 hover:text-red-800 underline"
-                            onclick="return confirm('Delete this sub balance? Budget months under it must be deleted first.');">Delete</button>
+                        <a href="{% url 'budget:wallet_group_detail' balance.id %}" class="inline-flex min-h-10 items-center rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50">Details</a>
+                        <button type="submit" class="wallet-group-delete inline-flex min-h-10 items-center rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700"
+                            onclick="return confirm('Delete this Wallet Group? Budget Months under it must be deleted first.');">Delete</button>
                     </form>
-                </li>
-                {% empty %}
+                </li>                {% empty %}
                 <li class="text-sm text-gray-400">No wallet groups yet. Create one below.</li>
                 {% endfor %}
             </ul>
@@ -109,9 +109,22 @@
             <form method="post" class="js-loading-submit">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="create_sub_balance">
+                <input type="hidden" id="sub-balance-budget-month" name="budget_month" value="{{ selected_expense_month.id|default:'' }}">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="sub-balance-parent-period">Budget Month</label>
+                        <select id="sub-balance-parent-period" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg"><option value="">Select a Budget Month...</option>{% for choice in expense_month_choices %}<option value="{{ choice.key }}" {% if selected_expense_period == choice.key %}selected{% endif %}>{{ choice.label }}</option>{% endfor %}</select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="sub-balance-parent-main">Main Balance</label>
+                        <select id="sub-balance-parent-main" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg"><option value="">Select a Main Balance...</option></select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="sub-balance-parent-wallet">Wallet Group</label>
+                        <select id="sub-balance-parent-wallet" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg"><option value="">Select a Wallet Group...</option></select>
+                    </div>
+                </div>
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ sub_balance_form.budget_month.id_for_label }}">Main Balance</label>
-                    {{ sub_balance_form.budget_month }}
                     {% for error in sub_balance_form.budget_month.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 </div>
                 <div class="mb-4">
@@ -186,8 +199,7 @@
             <div class="rounded-xl border border-gray-200 p-5 hover:border-blue-300 hover:shadow-sm transition">
                 <a class="block" href="{% url 'budget:main_balance_detail' bm.id %}">
                     <p class="text-sm text-gray-500">{{ bm.month_label }}</p>
-                    <h4 class="text-xl font-semibold text-gray-900 mt-1">{{ bm.category|default:bm.name }}</h4>
-                    <p class="text-xs text-gray-500">{{ bm.name }}</p>
+                    <h4 class="text-xl font-semibold text-gray-900 mt-1">{{ bm.name|default:"Unnamed Main Balance" }}</h4>
                 </a>
                 <p class="mt-3 text-gray-700">This Main Balance: {{ bm.total_money|mmk }}</p>
                 <p class="text-sm text-gray-500">Monthly Total: {{ bm.monthly_input_total|mmk }}</p>
@@ -228,9 +240,25 @@
                 {% csrf_token %}
                 <input type="hidden" name="action" value="save_period_budget">
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="period-budget-period">Budget Month</label>
+                    <select id="period-budget-period" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% for choice in expense_month_choices %}
+                        <option value="{{ choice.key }}" {% if period_budget_selected_period == choice.key %}selected{% endif %}>{{ choice.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="period-budget-main-balance">Main Balance</label>
+                    <select id="period-budget-main-balance" data-initial-value="{{ period_budget_selected_main_balance }}" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="period-budget-wallet-group">Wallet Group</label>
+                    <select id="period-budget-wallet-group" data-initial-value="{{ period_budget_selected_wallet_group }}" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+                </div>
+                <div class="hidden">
                     {{ period_budget_form.budget_month }}
                 </div>
+                {% for error in period_budget_form.budget_month.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 <div class="mb-4 pb-4 border-b border-gray-200">
                     <p class="text-sm font-semibold text-gray-700 mb-3">Default Period Categories</p>
                     <div class="space-y-3">
@@ -320,13 +348,25 @@
                 {% csrf_token %}
                 <input type="hidden" name="action" value="save_custom_category_budget">
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
-                    <select name="budget_month" id="custom-budget-month" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        {% for bm in budget_months %}
-                        <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.balance.name|default:bm.user.name }}</option>
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="custom-budget-period">Budget Month</label>
+                    <select id="custom-budget-period" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% for choice in expense_month_choices %}
+                        <option value="{{ choice.key }}" {% if custom_budget_selected_period == choice.key %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="custom-budget-main-balance">Main Balance</label>
+                    <select id="custom-budget-main-balance" data-initial-value="{{ custom_budget_selected_main_balance }}" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="custom-budget-wallet-group">Wallet Group</label>
+                    <select id="custom-budget-wallet-group" data-initial-value="{{ custom_budget_selected_wallet_group }}" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+                </div>
+                <div class="hidden">
+                    {{ custom_budget_form.budget_month }}
+                </div>
+                {% for error in custom_budget_form.budget_month.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Custom Category</label>
                     <select name="category" id="custom-budget-category" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -623,10 +663,24 @@
                 <input type="hidden" name="action" value="add_expense">
                 <input type="hidden" name="expense_type" value="{{ expense_type }}">
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
-                    {{ expense_form.budget_month }}
-                    {% for error in expense_form.budget_month.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_form.budget_period_choice.id_for_label }}">Budget Month</label>
+                    {{ expense_form.budget_period_choice }}
+                    {% for error in expense_form.budget_period_choice.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_form.main_balance_choice.id_for_label }}">Main Balance</label>
+                    {{ expense_form.main_balance_choice }}
+                    {% for error in expense_form.main_balance_choice.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_form.wallet_group_choice.id_for_label }}">Wallet Group</label>
+                    {{ expense_form.wallet_group_choice }}
+                    {% for error in expense_form.wallet_group_choice.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                <div class="hidden">
+                    {{ expense_form.budget_month }}
+                </div>
+                {% for error in expense_form.budget_month.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
                 {% if expense_type == 'sub' %}
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_form.sub_balance.id_for_label }}">Sub-Balance</label>
@@ -670,9 +724,23 @@
             <form method="post">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="add_extra_money">
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
-                    {{ unexpected_money_form.budget_month }}
+                <input type="hidden" id="unexpected-money-budget-month" name="budget_month" value="{{ selected_expense_month.id|default:'' }}">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="unexpected-money-period">Budget Month</label>
+                    <select id="unexpected-money-period" class="{{ input_class }}">
+                        <option value="">Select a Budget Month...</option>
+                        {% for choice in expense_month_choices %}<option value="{{ choice.key }}" {% if selected_expense_period == choice.key %}selected{% endif %}>{{ choice.label }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="unexpected-money-main-balance">Main Balance</label>
+                    <select id="unexpected-money-main-balance" class="{{ input_class }}"><option value="">Select a Main Balance...</option></select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="unexpected-money-wallet-group">Wallet Group</label>
+                    <select id="unexpected-money-wallet-group" class="{{ input_class }}"><option value="">Select a Wallet Group...</option></select>
+                </div>
                 </div>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
@@ -817,7 +885,7 @@
                     <label class="block text-sm font-medium text-gray-700 mb-2">Month</label>
                     <select name="budget_month" id="edit-expense-budget-month" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         {% for bm in budget_months %}
-                        <option value="{{ bm.id }}">{{ bm.month_label }} — {{ bm.balance.name|default:bm.user.name }}</option>
+                        <option value="{{ bm.id }}">{{ bm.name|default:bm.month_label }}{% if bm.name and bm.name != bm.month_label %} · {{ bm.month_label }}{% endif %}{% if bm.balance %} · {{ bm.balance.name }}{% endif %}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -856,20 +924,43 @@
                 <p class="text-sm text-gray-500">Compare category budget estimates against actual expenses.</p>
             </div>
             {% if budget_months %}
-            <form method="get" class="flex items-end gap-3">
+            <form method="get" id="expense-report-balance-selectors" class="flex flex-col sm:flex-row sm:items-end gap-3">
                 <input type="hidden" name="tab" value="expenses">
                 <input type="hidden" name="expense_type" value="{{ expense_type }}">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
-                    <select name="expense_month" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" onchange="this.form.submit()">
-                        {% for bm in budget_months %}
-                        <option value="{{ bm.id }}" {% if expense_comparison_month and bm.id == expense_comparison_month.id %}selected{% endif %}>{{ bm.month_label }} — {{ bm.balance.name|default:bm.user.name }}</option>
+                    <select name="expense_period" id="expense-period" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% for choice in expense_month_choices %}
+                        <option value="{{ choice.key }}" {% if choice.key == selected_expense_period %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="expense-main-balance">Main Balance</label>
+                    <select name="expense_main_balance" id="expense-main-balance" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% for choice in expense_main_balance_choices %}
+                        <option value="{{ choice.value }}" {% if choice.value == selected_main_balance_key %}selected{% endif %}>{{ choice.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2" for="expense-wallet-group">Wallet Group</label>
+                    <select name="expense_wallet_group" id="expense-wallet-group" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% for choice in expense_wallet_group_choices %}
+                        <option value="{{ choice.value }}" {% if choice.value == selected_wallet_group_key %}selected{% endif %}>{{ choice.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <input type="hidden" name="expense_month" id="expense-report-month-id" value="{{ expense_comparison_month.id }}">
             </form>
             {% endif %}
         </div>
+        {% if expense_comparison_month and expense_report %}
+        <p class="text-sm text-gray-600 -mt-2 mb-5">
+            Main Balance: <span class="font-medium text-gray-800">{{ expense_comparison_month.name|default:expense_comparison_month.month_label }}</span>
+            · Available {{ expense_report.total_money|mmk }}
+        </p>
+        {% endif %}
 
         {% if period_comparisons %}
         <div class="flex justify-end mb-4">
@@ -916,9 +1007,10 @@
     {% endif %}
 </div>
 
+{{ expense_selector_records|json_script:"expense-selector-records" }}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const subBalanceParentSelect = document.getElementById('sub-balance-budget-month');
+    const subBalanceParentSelect = document.getElementById('sub-balance-parent-period');
     const subBalanceDate = document.getElementById('sub-balance-date');
     const subBalanceMonthDisplay = document.getElementById('sub-balance-month-display');
     const subBalanceYearDisplay = document.getElementById('sub-balance-year-display');
@@ -965,6 +1057,156 @@ document.addEventListener('DOMContentLoaded', function() {
         allocationModeInputs.forEach((input) => input.addEventListener('change', updateAllocationMode));
         updateAllocationMode();
     }
+
+    const selectorRecordsElement = document.getElementById('expense-selector-records');
+    const expenseSelectorRecords = selectorRecordsElement
+        ? JSON.parse(selectorRecordsElement.textContent)
+        : [];
+
+    function setupExpenseBalanceSelectors(config) {
+        const periodSelect = document.getElementById(config.periodId);
+        const mainBalanceSelect = document.getElementById(config.mainBalanceId);
+        const walletGroupSelect = document.getElementById(config.walletGroupId);
+        const monthIdInput = document.getElementById(config.monthId);
+        const form = document.getElementById(config.formId);
+        if (!periodSelect || !mainBalanceSelect || !walletGroupSelect || !monthIdInput) return;
+
+        function setOptions(select, options, placeholder, selectedValue) {
+            select.innerHTML = '';
+            const emptyOption = document.createElement('option');
+            emptyOption.value = '';
+            emptyOption.textContent = placeholder;
+            select.appendChild(emptyOption);
+            options.forEach(option => {
+                const element = document.createElement('option');
+                element.value = option.value;
+                element.textContent = option.label;
+                select.appendChild(element);
+            });
+            if (options.some(option => String(option.value) === String(selectedValue))) {
+                select.value = selectedValue;
+            } else if (options.length) {
+                select.value = options[0].value;
+            }
+        }
+
+        function refreshSelections(preferredMain, preferredWallet, previousMonthId) {
+            const period = periodSelect.value;
+            const periodRecords = expenseSelectorRecords.filter(record => record.period === period);
+            const mainBalances = Array.from(new Map(
+                periodRecords.map(record => [
+                    record.main_balance,
+                    {value: record.main_balance, label: record.main_balance_label}
+                ])
+            ).values()).sort((left, right) => left.label.localeCompare(right.label));
+            setOptions(mainBalanceSelect, mainBalances, 'Select a Main Balance...', preferredMain);
+
+            const matchingRecords = periodRecords.filter(
+                record => record.main_balance === mainBalanceSelect.value
+            );
+            const walletGroups = Array.from(new Map(
+                matchingRecords.map(record => [
+                    record.wallet_group,
+                    {value: record.wallet_group, label: record.wallet_group_label}
+                ])
+            ).values()).sort((left, right) => left.label.localeCompare(right.label));
+            setOptions(walletGroupSelect, walletGroups, 'Select a Wallet Group...', preferredWallet);
+
+            const selectedRecords = matchingRecords.filter(
+                record => record.wallet_group === walletGroupSelect.value
+            );
+            const selectedRecord = selectedRecords.find(
+                record => String(record.id) === String(previousMonthId)
+            ) || selectedRecords[0];
+            const nextMonthId = selectedRecord ? String(selectedRecord.id) : '';
+            if (monthIdInput.value !== nextMonthId) {
+                monthIdInput.value = nextMonthId;
+                monthIdInput.dispatchEvent(new Event('change', {bubbles: true}));
+            }
+        }
+
+        function refreshAndSubmit() {
+            refreshSelections(
+                mainBalanceSelect.value,
+                walletGroupSelect.value,
+                monthIdInput.value
+            );
+            if (config.navigateOnChange && monthIdInput.value) {
+                const params = new URLSearchParams();
+                params.set('tab', 'expenses');
+                params.set('expense_period', periodSelect.value);
+                params.set('expense_month', monthIdInput.value);
+                params.set('expense_main_balance', mainBalanceSelect.value);
+                params.set('expense_wallet_group', walletGroupSelect.value);
+                const expenseType = document.querySelector('input[name="expense_type"]');
+                if (expenseType) params.set('expense_type', expenseType.value);
+                const selectedSubBalance = document.getElementById('expense-sub-balance');
+                if (selectedSubBalance && selectedSubBalance.value) {
+                    params.set('sub_balance', selectedSubBalance.value);
+                }
+                window.location.assign(`${window.location.pathname}?${params.toString()}`);
+                return;
+            }
+            if (config.submitOnChange && form) form.submit();
+        }
+
+        periodSelect.addEventListener('change', refreshAndSubmit);
+        mainBalanceSelect.addEventListener('change', refreshAndSubmit);
+        walletGroupSelect.addEventListener('change', refreshAndSubmit);
+        refreshSelections(
+            config.initialMain || mainBalanceSelect.value,
+            config.initialWallet || walletGroupSelect.value,
+            monthIdInput.value
+        );
+    }
+
+    setupExpenseBalanceSelectors({
+        periodId: 'period-budget-period',
+        mainBalanceId: 'period-budget-main-balance',
+        walletGroupId: 'period-budget-wallet-group',
+        monthId: 'period-budget-month',
+        initialMain: '{{ period_budget_selected_main_balance|escapejs }}',
+        initialWallet: '{{ period_budget_selected_wallet_group|escapejs }}'
+    });
+    setupExpenseBalanceSelectors({
+        periodId: 'custom-budget-period',
+        mainBalanceId: 'custom-budget-main-balance',
+        walletGroupId: 'custom-budget-wallet-group',
+        monthId: 'custom-budget-month',
+        initialMain: '{{ custom_budget_selected_main_balance|escapejs }}',
+        initialWallet: '{{ custom_budget_selected_wallet_group|escapejs }}'
+    });
+    setupExpenseBalanceSelectors({
+        periodId: 'sub-balance-parent-period',
+        mainBalanceId: 'sub-balance-parent-main',
+        walletGroupId: 'sub-balance-parent-wallet',
+        monthId: 'sub-balance-budget-month',
+        initialMain: '{{ selected_main_balance_key|escapejs }}',
+        initialWallet: '{{ selected_wallet_group_key|escapejs }}'
+    });
+    setupExpenseBalanceSelectors({
+        periodId: 'expense-entry-period',
+        mainBalanceId: 'expense-entry-main-balance',
+        walletGroupId: 'expense-entry-wallet-group',
+        monthId: 'expense-budget-month',
+        navigateOnChange: true
+    });
+    setupExpenseBalanceSelectors({
+        periodId: 'unexpected-money-period',
+        mainBalanceId: 'unexpected-money-main-balance',
+        walletGroupId: 'unexpected-money-wallet-group',
+        monthId: 'unexpected-money-budget-month',
+        initialMain: '{{ selected_main_balance_key|escapejs }}',
+        initialWallet: '{{ selected_wallet_group_key|escapejs }}'
+    });
+    setupExpenseBalanceSelectors({
+        periodId: 'expense-period',
+        mainBalanceId: 'expense-main-balance',
+        walletGroupId: 'expense-wallet-group',
+        monthId: 'expense-report-month-id',
+        formId: 'expense-report-balance-selectors',
+        submitOnChange: true
+    });
 
     // --- Daily Expense form: load categories for the selected month ---
     const monthSelect = document.getElementById('expense-budget-month');
