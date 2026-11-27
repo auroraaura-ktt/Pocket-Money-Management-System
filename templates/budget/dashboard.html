@@ -188,7 +188,7 @@
         </div>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6 w-full min-w-0">
         <div class="flex items-center justify-between gap-4 mb-4 pb-3 border-b border-gray-200">
             <h3 class="text-lg font-semibold text-gray-900">Your Main Balances</h3>
             <a href="#budget-month-form" class="text-sm text-blue-700 hover:underline">+ Add Main Balance</a>
@@ -657,7 +657,7 @@
     <div class="grid grid-cols-1 {% if expense_type == 'main' %}lg:grid-cols-2{% endif %} gap-6 mb-8">
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 class="text-lg font-semibold text-gray-900 mb-2">{% if expense_type == 'sub' %}Add Actual Money to a Sub-Balance{% else %}Add Daily Expense{% endif %}</h3>
-            <p class="text-sm text-gray-500 mb-4">{% if expense_type == 'sub' %}Choose the Sub-Balance and one of its categories. Its Main Balance month is inherited and the spending date must fall within that month.{% else %}Choose a Main Balance category (custom categories apply to the whole month). The date must match the category period.{% endif %}</p>
+            <p class="text-sm text-gray-500 mb-4">{% if expense_type == 'sub' %}Each row records a category, amount, date, and optional note. Choose a Sub-Balance and one of its categories; dates default to today and must fall within its Main Balance month.{% else %}Each row records a category, amount, date, and optional note. Dates default to today and must match the selected Main Balance month and category period.{% endif %}</p>
             <form method="post" class="js-loading-submit">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="add_expense">
@@ -689,31 +689,44 @@
                     <p class="text-xs text-gray-500 mt-1">Categories are managed within each Sub-Balance. <a id="manage-sub-balance-categories" class="text-blue-700 hover:underline {% if not selected_sub_balance %}hidden{% endif %}" href="{% if selected_sub_balance %}{% url 'budget:sub_balance_detail' selected_sub_balance.id %}{% else %}#{% endif %}">Manage categories</a></p>
                 </div>
                 {% endif %}
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                <div id="daily-expense-rows" class="space-y-3 mb-4">
+                <div class="daily-expense-row grid grid-cols-1 md:grid-cols-3 gap-x-3 gap-y-1 rounded-lg border border-gray-200 p-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Category (text)</label>
+                    <input type="text" name="category_name" class="{{ input_class }} block w-full max-w-none box-border h-[42px]" placeholder="Type a category name">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Balance (MMK)</label>
+                    {{ expense_form.amount }}
+                    {% for error in expense_form.amount.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Date (optional)</label>
+                    {{ expense_form.expense_date }}
+                    {% for error in expense_form.expense_date.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Category (select)</label>
                     {{ expense_form.category }}
                     {% if expense_form.category.errors %}<p class="text-red-600 text-sm mt-1">{{ expense_form.category.errors.0 }}</p>{% endif %}
                     <p id="expense-category-load-error" class="hidden text-red-600 text-sm mt-1" role="alert"></p>
                 </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Date</label>
-                    {{ expense_form.expense_date }}
-                    {% for error in expense_form.expense_date.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
-                    {{ expense_form.amount }}
-                    {% for error in expense_form.amount.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Note (optional)</label>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Notes (optional)</label>
                     {{ expense_form.note }}
                     {% for error in expense_form.note.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                </div>
                 </div>
                 {% if expense_form.non_field_errors %}
                 <p class="text-red-600 text-sm mb-4">{{ expense_form.non_field_errors.0 }}</p>
                 {% endif %}
-                <button type="submit" data-loading-text="Saving Actual Money..." class="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-5 py-2.5 rounded-lg transition">{% if expense_type == 'sub' %}Add Actual Money{% else %}Add Expense{% endif %}</button>
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <button type="submit" data-loading-text="Saving Actual Money..." class="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-5 py-2.5 rounded-lg transition">{% if expense_type == 'sub' %}Add Actual Money{% else %}Add Expense{% endif %}</button>
+                    <button type="button" id="add-daily-expense-row" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                        <span aria-hidden="true">+</span> Additional Expense
+                    </button>
+                </div>
             </form>
         </div>
 
@@ -742,23 +755,23 @@
                     <select id="unexpected-money-wallet-group" class="{{ input_class }}"><option value="">Select a Wallet Group...</option></select>
                 </div>
                 </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
-                    {{ unexpected_money_form.category }}
-                    {% if unexpected_money_form.category.errors %}<p class="text-red-600 text-sm mt-1">{{ unexpected_money_form.category.errors.0 }}</p>{% endif %}
+                <div id="unexpected-money-rows" class="space-y-3 mb-4">
+                    <div class="unexpected-money-row grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end rounded-lg border border-gray-200 p-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                    <input type="text" name="category_name" class="{{ input_class }} py-2.5 min-h-11" placeholder="e.g. Groceries, Bonus" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Balance (MMK)</label>
+                    <input type="number" name="amount" class="{{ input_class }} py-2.5 min-h-11" min="1" step="1" placeholder="5000" required>
+                        </div>
+                        <button type="button" class="remove-unexpected-money-row hidden text-red-600 hover:text-red-800 px-3 py-2" aria-label="Remove category and balance">Remove</button>
+                    </div>
                 </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Or create a new category</label>
-                    {{ unexpected_money_form.new_category_name }}
-                    {% if unexpected_money_form.new_category_name.errors %}<p class="text-red-600 text-sm mt-1">{{ unexpected_money_form.new_category_name.errors.0 }}</p>{% endif %}
-                </div>
+                <button type="button" id="add-unexpected-money-row" class="mb-4 text-sm font-medium text-blue-600 hover:text-blue-800">+ Additional Expenses</button>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Date</label>
                     {{ unexpected_money_form.expense_date }}
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
-                    {{ unexpected_money_form.amount }}
                 </div>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Note (optional)</label>
@@ -771,37 +784,6 @@
             </form>
         </div>
         {% endif %}
-    </div>
-
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-        <h3 class="text-lg font-semibold text-gray-900 mb-2">Create a custom category</h3>
-        <p class="text-sm text-gray-500 mb-4">Type any category name. New categories are associated with the selected Main Balance or Sub-Balance and can then be used for actual spending.</p>
-        <form method="post" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="create_expense_category">
-            <input type="hidden" name="category_type" value="{{ expense_type }}">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_category_form.budget_month.id_for_label }}">Main Balance month</label>
-                {{ expense_category_form.budget_month }}
-                {% for error in expense_category_form.budget_month.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
-            </div>
-            {% if expense_type == 'sub' %}
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_category_form.sub_balance.id_for_label }}">Sub-Balance</label>
-                {{ expense_category_form.sub_balance }}
-                {% for error in expense_category_form.sub_balance.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
-            </div>
-            {% endif %}
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ expense_category_form.name.id_for_label }}">Category name</label>
-                {{ expense_category_form.name }}
-                {% for error in expense_category_form.name.errors %}<p class="text-red-600 text-sm mt-1">{{ error }}</p>{% endfor %}
-            </div>
-            {% if expense_category_form.non_field_errors %}<p class="text-red-600 text-sm">{{ expense_category_form.non_field_errors.0 }}</p>{% endif %}
-            <div>
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">Create Category</button>
-            </div>
-        </form>
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
@@ -824,7 +806,12 @@
             {% endif %}
         </div>
         {% endif %}
+        <div class="relative mb-4">
         <h3 class="text-lg font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-200">{% if expense_type == 'sub' %}Sub-Balance Actual Money{% else %}All Expenses by Category{% endif %}</h3>
+        <button type="button" id="toggle-expense-records" class="absolute top-0 right-0 mt-2.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-sm font-semibold text-blue-800 hover:bg-blue-100 transition" aria-expanded="true" aria-controls="expense-records-content">
+            Hide expense records
+        </button>
+        <div id="expense-records-content" class="pt-4">
         {% if expense_type == 'sub' and expense_comparison_month %}
         <form method="get" class="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
             <input type="hidden" name="tab" value="expenses">
@@ -859,13 +846,15 @@
                         <td class="px-4 py-3">{{ exp.category.name }}</td>
                         <td class="px-4 py-3 text-right font-medium {% if exp.amount < 0 %}text-green-600{% else %}text-gray-900{% endif %}">{{ exp.amount|mmk }}</td>
                         <td class="px-4 py-3 text-right">
-                            <button type="button" class="text-xs text-blue-600 hover:text-blue-800 underline edit-expense" data-expense-id="{{ exp.id }}" data-budget-month="{{ exp.budget_month.id }}" data-sub-balance="{{ exp.sub_balance_id|default:'' }}" data-category="{{ exp.category.id }}" data-date="{{ exp.expense_date|date:'Y-m-d' }}" data-amount="{{ exp.amount }}" data-note="{{ exp.note|default:'' }}">Edit</button>
-                            <form method="post" class="inline-block ml-2">
+                            <div role="group" aria-label="Expense actions" class="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-1.5">
+                            <button type="button" class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 edit-expense" data-expense-id="{{ exp.id }}" data-budget-month="{{ exp.budget_month.id }}" data-sub-balance="{{ exp.sub_balance_id|default:'' }}" data-category="{{ exp.category.id }}" data-date="{{ exp.expense_date|date:'Y-m-d' }}" data-amount="{{ exp.amount }}" data-note="{{ exp.note|default:'' }}">Edit</button>
+                            <form method="post">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="delete_expense">
                                 <input type="hidden" name="expense_id" value="{{ exp.id }}">
-                                <button type="submit" class="text-xs text-red-600 hover:text-red-800 underline" onclick="return confirm('Delete this expense record?');">Delete</button>
+                                <button type="submit" class="rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50" onclick="return confirm('Delete this expense record?');">Delete</button>
                             </form>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -873,79 +862,90 @@
             </table>
         </div>
 
-        <div class="mt-6 bg-gray-50 border border-gray-200 rounded-xl p-4">
-            <h4 class="text-sm font-semibold text-gray-800 mb-3">Update Expense</h4>
-            <form method="post" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <dialog id="edit-expense-dialog" class="m-auto max-h-[90vh] w-[min(92vw,760px)] rounded-2xl border-0 bg-white p-0 shadow-2xl backdrop:bg-slate-950/50">
+            <form method="post" class="p-6">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="update_expense">
                 <input type="hidden" name="expense_id" id="edit-expense-id">
                 <input type="hidden" name="expense_type" value="{{ expense_type }}">
                 <input type="hidden" name="sub_balance" id="edit-expense-sub-balance">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Month</label>
-                    <select name="budget_month" id="edit-expense-budget-month" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        {% for bm in budget_months %}
-                        <option value="{{ bm.id }}">{{ bm.name|default:bm.month_label }}{% if bm.name and bm.name != bm.month_label %} · {{ bm.month_label }}{% endif %}{% if bm.balance %} · {{ bm.balance.name }}{% endif %}</option>
-                        {% endfor %}
-                    </select>
+                <input type="hidden" name="budget_month" id="edit-expense-budget-month">
+                <div class="mb-5 flex items-start justify-between gap-4 border-b border-gray-100 pb-4">
+                    <div>
+                        <h3 class="text-xl font-semibold text-gray-900">Edit expense</h3>
+                        <p class="mt-1 text-sm text-gray-500">Update its category, date, balance, or notes.</p>
+                    </div>
+                    <button type="button" id="close-edit-expense-dialog" class="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50" aria-label="Close edit expense dialog">Close</button>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
-                    <select name="category" id="edit-expense-category" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="">Select category...</option>
-                    </select>
+                <p id="edit-expense-category-error" class="mb-4 hidden rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert"></p>
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                        <label for="edit-expense-category" class="mb-2 block text-sm font-medium text-gray-700">Category</label>
+                        <select name="category" id="edit-expense-category" required class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">Select category...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="edit-expense-date" class="mb-2 block text-sm font-medium text-gray-700">Date</label>
+                        <input type="date" name="expense_date" id="edit-expense-date" required class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="edit-expense-amount" class="mb-2 block text-sm font-medium text-gray-700">Balance (MMK)</label>
+                        <input type="number" name="amount" id="edit-expense-amount" min="1" step="1" required class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="edit-expense-note" class="mb-2 block text-sm font-medium text-gray-700">Notes (optional)</label>
+                        <input type="text" name="note" id="edit-expense-note" maxlength="255" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Add a note">
+                    </div>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Date</label>
-                    <input type="date" name="expense_date" id="edit-expense-date" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Amount (MMK)</label>
-                    <input type="number" name="amount" id="edit-expense-amount" min="1" step="1" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Note</label>
-                    <input type="text" name="note" id="edit-expense-note" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Optional">
-                </div>
-                <div class="md:col-span-5 flex justify-end">
-                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition" onclick="this.disabled=true; this.form.submit();">Update Expense</button>
+                <div class="mt-6 flex justify-end gap-3">
+                    <button type="button" class="close-edit-expense-dialog rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50">Cancel</button>
+                    <button type="submit" class="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">Save changes</button>
                 </div>
             </form>
-        </div>
+        </dialog>
         {% else %}
         <p class="text-gray-500 text-center py-8">{% if expense_type == 'sub' %}No Sub-Balance Actual Money recorded for this Main Balance month yet.{% else %}No expenses recorded yet.{% endif %}</p>
         {% endif %}
+            </div>
+        </div>
+        </div>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
-            <div>
-                <h3 class="text-lg font-semibold text-gray-900 mb-1">Budget vs Actual by Category</h3>
-                <p class="text-sm text-gray-500">Compare category budget estimates against actual expenses.</p>
+    <div class="budget-comparison-card bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6 min-w-0 mx-auto" style="width: 100%; max-width: 77rem; margin-left: auto; margin-right: auto;">
+        <div class="relative">
+            <div class="mb-4 flex justify-end">
+                <button type="button" id="toggle-budget-comparison" class="px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-sm font-semibold text-blue-800 hover:bg-blue-100 transition" aria-expanded="true" aria-controls="budget-comparison-content">
+                    Hide budget comparison
+                </button>
             </div>
-            {% if budget_months %}
-            <form method="get" id="expense-report-balance-selectors" class="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div id="budget-comparison-content">
+            <h3 class="text-lg font-semibold text-gray-900 mb-1">Budget vs Actual by Category</h3>
+            <div class="pt-4">
+                <p class="text-sm text-gray-500 mb-4">Compare category budget estimates against actual expenses.</p>
+                {% if budget_months %}
+            <form method="get" id="expense-report-balance-selectors" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-5">
                 <input type="hidden" name="tab" value="expenses">
                 <input type="hidden" name="expense_type" value="{{ expense_type }}">
-                <div>
+                <div class="min-w-0">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Budget Month</label>
-                    <select name="expense_period" id="expense-period" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <select name="expense_period" id="expense-period" class="block w-full min-w-0 max-w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         {% for choice in expense_month_choices %}
                         <option value="{{ choice.key }}" {% if choice.key == selected_expense_period %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div>
+                <div class="min-w-0">
                     <label class="block text-sm font-medium text-gray-700 mb-2" for="expense-main-balance">Main Balance</label>
-                    <select name="expense_main_balance" id="expense-main-balance" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <select name="expense_main_balance" id="expense-main-balance" class="block w-full min-w-0 max-w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         {% for choice in expense_main_balance_choices %}
                         <option value="{{ choice.value }}" {% if choice.value == selected_main_balance_key %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div>
+                <div class="min-w-0">
                     <label class="block text-sm font-medium text-gray-700 mb-2" for="expense-wallet-group">Wallet Group</label>
-                    <select name="expense_wallet_group" id="expense-wallet-group" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <select name="expense_wallet_group" id="expense-wallet-group" class="block w-full min-w-0 max-w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         {% for choice in expense_wallet_group_choices %}
                         <option value="{{ choice.value }}" {% if choice.value == selected_wallet_group_key %}selected{% endif %}>{{ choice.label }}</option>
                         {% endfor %}
@@ -954,7 +954,6 @@
                 <input type="hidden" name="expense_month" id="expense-report-month-id" value="{{ expense_comparison_month.id }}">
             </form>
             {% endif %}
-        </div>
         {% if expense_comparison_month and expense_report %}
         <p class="text-sm text-gray-600 -mt-2 mb-5">
             Main Balance: <span class="font-medium text-gray-800">{{ expense_comparison_month.name|default:expense_comparison_month.month_label }}</span>
@@ -963,14 +962,6 @@
         {% endif %}
 
         {% if period_comparisons %}
-        <div class="flex justify-end mb-4">
-            <form method="post" class="js-loading-submit">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="finish_month">
-                <input type="hidden" name="budget_month_id" value="{{ expense_comparison_month.id }}">
-                <button type="submit" data-loading-text="Sending report..." class="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-5 py-2.5 rounded-lg transition">Finish and Email Monthly Report</button>
-            </form>
-        </div>
         <div class="overflow-x-auto">
             <table class="w-full">
                 <thead>
@@ -1003,6 +994,19 @@
         {% else %}
         <p class="text-gray-500 text-center py-8">Create a budget month and add expenses to see the comparison.</p>
         {% endif %}
+            </div>
+            </div>
+            {% if period_comparisons %}
+            <div class="mt-5 flex justify-end">
+                <form method="post" class="js-loading-submit">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="finish_month">
+                    <input type="hidden" name="budget_month_id" value="{{ expense_comparison_month.id }}">
+                    <button type="submit" data-loading-text="Sending report..." class="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-wait text-white font-semibold px-5 py-2.5 rounded-lg transition">Finish and Email Main Balance Report</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
     </div>
     {% endif %}
 </div>
@@ -1446,6 +1450,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const expenseEditorDate = document.getElementById('edit-expense-date');
     const expenseEditorAmount = document.getElementById('edit-expense-amount');
     const expenseEditorNote = document.getElementById('edit-expense-note');
+    const expenseEditorDialog = document.getElementById('edit-expense-dialog');
+    const expenseEditorCategoryError = document.getElementById('edit-expense-category-error');
 
     async function loadExpenseEditorCategories(monthId, subBalanceId) {
         if (!expenseEditorMonth || !expenseEditorCategory) return;
@@ -1454,6 +1460,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         const resp = await fetch(`/api/categories/${monthId}/`);
+        if (!resp.ok) throw new Error(`Category request failed (${resp.status}).`);
         const data = await resp.json();
         expenseEditorCategory.innerHTML = '<option value="">Select category...</option>';
         data.categories.filter(cat => (
@@ -1475,45 +1482,134 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.querySelectorAll('.edit-expense').forEach(button => {
         button.addEventListener('click', function() {
-            if (!expenseEditorMonth || !expenseEditorCategory || !expenseEditorId || !expenseEditorDate || !expenseEditorAmount || !expenseEditorNote) return;
+            if (!expenseEditorDialog || !expenseEditorMonth || !expenseEditorCategory || !expenseEditorId || !expenseEditorDate || !expenseEditorAmount || !expenseEditorNote) return;
 
             expenseEditorMonth.value = this.dataset.budgetMonth;
             if (expenseEditorSubBalance) expenseEditorSubBalance.value = this.dataset.subBalance || '';
+            if (expenseEditorCategoryError) {
+                expenseEditorCategoryError.textContent = '';
+                expenseEditorCategoryError.classList.add('hidden');
+            }
+            // Show dialog immediately for fast response, then load categories in background
+            expenseEditorDialog.showModal();
+            expenseEditorCategory.focus();
             loadExpenseEditorCategories(this.dataset.budgetMonth, this.dataset.subBalance || '').then(() => {
                 expenseEditorCategory.value = this.dataset.category;
+            }).catch(error => {
+                if (expenseEditorCategoryError) {
+                    expenseEditorCategoryError.textContent = `Could not load categories: ${error.message}`;
+                    expenseEditorCategoryError.classList.remove('hidden');
+                }
             });
             expenseEditorId.value = this.dataset.expenseId;
             expenseEditorDate.value = this.dataset.date;
             expenseEditorAmount.value = this.dataset.amount;
             expenseEditorNote.value = this.dataset.note || '';
-            expenseEditorAmount.focus();
         });
     });
 
+    if (expenseEditorDialog) {
+        expenseEditorDialog.querySelectorAll(
+            '#close-edit-expense-dialog, .close-edit-expense-dialog'
+        ).forEach(button => {
+            button.addEventListener('click', () => expenseEditorDialog.close());
+        });
+        expenseEditorDialog.addEventListener('click', event => {
+            if (event.target === expenseEditorDialog) expenseEditorDialog.close();
+        });
+    }
+
     // --- Unexpected money category loader ---
     const unexpectedMonthSelect = document.getElementById('unexpected-money-budget-month');
-    const unexpectedCategorySelect = document.getElementById('unexpected-money-category');
+    const unexpectedRows = document.getElementById('unexpected-money-rows');
 
-    if (unexpectedMonthSelect && unexpectedCategorySelect) {
-        async function loadUnexpectedCategories(monthId) {
-            if (!monthId) {
-                unexpectedCategorySelect.innerHTML = '<option value="">Select category...</option>';
-                return;
+    if (unexpectedRows) {
+        document.getElementById('add-unexpected-money-row').addEventListener('click', () => {
+            const row = unexpectedRows.querySelector('.unexpected-money-row').cloneNode(true);
+            row.querySelector('input[name="category_name"]').value = '';
+            row.querySelector('input[name="amount"]').value = '';
+            row.querySelector('.remove-unexpected-money-row').classList.remove('hidden');
+            unexpectedRows.appendChild(row);
+        });
+        unexpectedRows.addEventListener('click', event => {
+            const removeButton = event.target.closest('.remove-unexpected-money-row');
+            if (removeButton && unexpectedRows.querySelectorAll('.unexpected-money-row').length > 1) {
+                removeButton.closest('.unexpected-money-row').remove();
             }
-            const resp = await fetch(`/api/categories/${monthId}/`);
-            const data = await resp.json();
-            unexpectedCategorySelect.innerHTML = '<option value="">Select category...</option>';
-            data.categories.filter(cat => !cat.sub_balance_id).forEach(cat => {
-                const opt = document.createElement('option');
-                opt.value = cat.id;
-                opt.textContent = cat.name;
-                unexpectedCategorySelect.appendChild(opt);
-            });
-        }
+        });
+    }
 
-        unexpectedMonthSelect.addEventListener('change', () => loadUnexpectedCategories(unexpectedMonthSelect.value));
-        if (unexpectedMonthSelect.value) loadUnexpectedCategories(unexpectedMonthSelect.value);
+    const dailyExpenseRows = document.getElementById('daily-expense-rows');
+    if (dailyExpenseRows) {
+        document.getElementById('add-daily-expense-row').addEventListener('click', () => {
+            const row = dailyExpenseRows.querySelector('.daily-expense-row').cloneNode(true);
+            const category = row.querySelector('[name="category"]');
+            const amount = row.querySelector('[name="amount"]');
+            if (category) {
+                category.removeAttribute('id');
+                category.name = 'category';
+                category.value = '';
+            }
+            if (amount) {
+                amount.removeAttribute('id');
+                amount.name = 'amount';
+                amount.value = '';
+            }
+            const categoryName = row.querySelector('[name="category_name"]');
+            if (categoryName) categoryName.value = '';
+            const expenseDate = row.querySelector('[name="expense_date"]');
+            if (expenseDate) {
+                expenseDate.removeAttribute('id');
+                const today = new Date();
+                expenseDate.value = [
+                    today.getFullYear(),
+                    String(today.getMonth() + 1).padStart(2, '0'),
+                    String(today.getDate()).padStart(2, '0')
+                ].join('-');
+            }
+            const note = row.querySelector('[name="note"]');
+            if (note) {
+                note.removeAttribute('id');
+                note.value = '';
+            }
+            row.querySelectorAll('p').forEach(error => error.remove());
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'remove-daily-expense-row mb-3 text-sm text-red-600 hover:text-red-800 md:col-span-3';
+            remove.textContent = 'Remove';
+            row.prepend(remove);
+            dailyExpenseRows.appendChild(row);
+        });
+        dailyExpenseRows.addEventListener('click', event => {
+            const button = event.target.closest('.remove-daily-expense-row');
+            if (button && dailyExpenseRows.querySelectorAll('.daily-expense-row').length > 1) {
+                button.closest('.daily-expense-row').remove();
+            }
+        });
     }
 });
+
+    // Toggle show/hide expense records
+    const toggleBtn = document.getElementById('toggle-expense-records');
+    const content = document.getElementById('expense-records-content');
+    if (toggleBtn && content) {
+        toggleBtn.addEventListener('click', () => {
+            const hidden = content.classList.toggle('hidden');
+            toggleBtn.textContent = hidden ? 'Show expense records' : 'Hide expense records';
+            toggleBtn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+        });
+    }
+
+    // Toggle show/hide budget comparison
+    const toggleBudgetBtn = document.getElementById('toggle-budget-comparison');
+    const budgetContent = document.getElementById('budget-comparison-content');
+    if (toggleBudgetBtn && budgetContent) {
+        toggleBudgetBtn.addEventListener('click', () => {
+            const hidden = budgetContent.classList.toggle('hidden');
+            toggleBudgetBtn.textContent = hidden ? 'Show budget comparison' : 'Hide budget comparison';
+            toggleBudgetBtn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+        });
+    }
+
 </script>
 {% endblock %}

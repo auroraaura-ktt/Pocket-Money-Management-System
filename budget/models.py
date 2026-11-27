@@ -367,6 +367,10 @@ class DailyExpense(models.Model):
 
     class Meta:
         ordering = ["-expense_date", "-id"]
+        indexes = [
+            models.Index(fields=["budget_month"], name="daily_expense_budget_month_idx"),
+            models.Index(fields=["expense_date"], name="daily_expense_expense_date_idx"),
+        ]
 
     def __str__(self):
         return f"{self.expense_date} — {self.amount} MMK"

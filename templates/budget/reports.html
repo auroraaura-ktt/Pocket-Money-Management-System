@@ -73,7 +73,7 @@
     {% if report_dataset %}
     <section class="report-output" aria-labelledby="monthly-report-title">
         <div class="report-output-heading">
-            <div><span class="reports-eyebrow">MONTHLY SUMMARY</span><h2 id="monthly-report-title">PMMS Monthly Financial Report</h2><p>Month: {{ report_dataset.month }} <span>·</span> {{ report_dataset.total_main_balances }} Main Balance{{ report_dataset.total_main_balances|pluralize }} <span>·</span> {{ report_dataset.total_transactions }} transactions</p></div>
+            <div><span class="reports-eyebrow">MONTHLY SUMMARY</span><h2 id="monthly-report-title">PMMS {{ report_dataset.report_title }}</h2><p>Month: {{ report_dataset.month }} <span>·</span> {{ report_dataset.total_main_balances }} Main Balance{{ report_dataset.total_main_balances|pluralize }} <span>·</span> {{ report_dataset.total_transactions }} transactions</p></div>
             <div class="report-summary-stamp"><span aria-hidden="true">&#10003;</span> Report ready</div>
         </div>
 

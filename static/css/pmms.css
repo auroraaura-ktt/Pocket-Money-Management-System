@@ -212,6 +212,23 @@ a.bg-green-600:hover {
     transition: border-color .16s, box-shadow .16s, background-color .16s;
 }
 
+/* Keep the full budget comparison section centered as one card. */
+.pmms-dashboard .budget-comparison-card {
+    width: 100%;
+    max-width: 64rem;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.pmms-dashboard .budget-comparison-card .overflow-x-auto {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.pmms-dashboard .budget-comparison-card table {
+    min-width: 680px;
+}
+
 .pmms-dashboard form input::placeholder,
 .pmms-dashboard form textarea::placeholder {
     color: #8a9cba;

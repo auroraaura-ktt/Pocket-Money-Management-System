@@ -1,6 +1,7 @@
 """Build consistent web, PDF, and CSV reports from authorized Main Balances."""
 
 import csv
+import re
 from decimal import Decimal
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -14,7 +15,10 @@ from openpyxl.utils import get_column_letter
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Image,
     Paragraph,
@@ -25,8 +29,69 @@ from reportlab.platypus import (
 )
 
 from budget.currency import format_mmk, to_mmk
-from budget.models import DailyExpense, InputBalance, SubBalance
+from budget.models import BudgetMonth, DailyExpense, InputBalance, SubBalance
 from budget.services.report_service import generate_monthly_report
+
+
+PDF_MYANMAR_FONT = "Pyidaungsu"
+PDF_MYANMAR_BOLD_FONT = "Pyidaungsu-Bold"
+PDF_ENGLISH_FONT = "Helvetica"
+PDF_ENGLISH_BOLD_FONT = "Helvetica-Bold"
+_MYANMAR_RUN_RE = re.compile(
+    r"([\u1000-\u109f\ua9e0-\ua9ff\uaa60-\uaa7f\ue000-\uf8ff"
+    r"\u200b-\u200d\ufe00-\ufe0f]+)"
+)
+
+
+def _pdf_text(value):
+    return str(value).replace("\uffff" * 9, "ကတ်လောင်း")
+
+
+def _pdf_markup(value):
+    """Escape text and use the embedded Myanmar font only for Myanmar runs."""
+    escaped_text = escape(_pdf_text(value))
+    return _MYANMAR_RUN_RE.sub(
+        lambda match: f'<font name="{PDF_MYANMAR_FONT}">{match.group(0)}</font>',
+        escaped_text,
+    )
+
+
+def _pdf_paragraph(value, style):
+    text = _pdf_text(value)
+    if _MYANMAR_RUN_RE.search(text):
+        style = style.clone(f"{style.name}Myanmar")
+        style.shaping = 1
+    return Paragraph(_pdf_markup(text), style)
+
+
+def _register_pdf_fonts():
+    font_dir = Path(settings.BASE_DIR) / "static" / "fonts"
+    for font_name, filename in (
+        (PDF_MYANMAR_FONT, "Pyidaungsu-2.5.3_Regular.ttf"),
+        (PDF_MYANMAR_BOLD_FONT, "Pyidaungsu-2.5.3_Bold.ttf"),
+    ):
+        if font_name not in pdfmetrics.getRegisteredFontNames():
+            font = TTFont(font_name, str(font_dir / filename), shapable=True)
+            if not font.shapable:
+                raise RuntimeError(
+                    "Myanmar PDF text requires HarfBuzz shaping. "
+                    "Install the project dependencies from requirements.txt."
+                )
+            pdfmetrics.registerFont(font)
+    pdfmetrics.registerFontFamily(
+        PDF_MYANMAR_FONT,
+        normal=PDF_MYANMAR_FONT,
+        bold=PDF_MYANMAR_BOLD_FONT,
+        italic=PDF_MYANMAR_FONT,
+        boldItalic=PDF_MYANMAR_BOLD_FONT,
+    )
+    pdfmetrics.registerFontFamily(
+        PDF_ENGLISH_FONT,
+        normal=PDF_ENGLISH_FONT,
+        bold=PDF_ENGLISH_BOLD_FONT,
+        italic=PDF_ENGLISH_FONT,
+        boldItalic=PDF_ENGLISH_BOLD_FONT,
+    )
 
 
 def build_monthly_report_dataset(main_balances):
@@ -148,8 +213,30 @@ def build_monthly_report_dataset(main_balances):
         transaction_totals["sub"] += record["sub_transaction_count"]
 
     totals = {key: to_mmk(value) for key, value in totals.items()}
+    main_balance_names = [record["display_name"] for record in records]
+    sub_balance_names = list(dict.fromkeys(
+        detail["name"]
+        for record in records
+        for detail in record["sub_balance_details"]
+    ))
+    month_balance_ids = set(
+        BudgetMonth.objects.filter(
+            user_id=balances[0].user_id,
+            year=balances[0].year,
+            month=balances[0].month,
+        ).values_list("id", flat=True)
+    )
+    selected_balance_ids = {balance.pk for balance in balances}
+    report_title = (
+        "Monthly Financial Report"
+        if selected_balance_ids == month_balance_ids or len(balances) > 1
+        else "Main Balance Financial Report"
+    )
     return {
         "month": month,
+        "report_title": report_title,
+        "main_balance_names": main_balance_names,
+        "sub_balance_names": sub_balance_names,
         "main_balances": records,
         "totals": totals,
         "total_main_balances": len(records),
@@ -162,6 +249,8 @@ def build_monthly_report_dataset(main_balances):
 CSV_COLUMNS = [
     "Organization",
     "Report Title",
+    "Main Balances Included",
+    "Sub-Balances Included",
     "Record Type",
     "Month",
     "Main Balance Name",
@@ -201,7 +290,9 @@ def build_report_csv(dataset):
         balance = record["main_balance"]
         common = {
             "Organization": "Pocket Money Management System",
-            "Report Title": f"Monthly Financial Report — {dataset['month']}",
+            "Report Title": f"{dataset['report_title']} — {dataset['month']}",
+            "Main Balances Included": ", ".join(dataset["main_balance_names"]),
+            "Sub-Balances Included": ", ".join(dataset["sub_balance_names"]),
             "Month": dataset["month"],
             "Main Balance Name": record["display_name"],
             "Total Budget Estimated": record["predicted_amount"],
@@ -295,16 +386,24 @@ def build_report_xlsx(dataset):
     worksheet.merge_cells("B1:F1")
     worksheet.merge_cells("B2:F2")
     worksheet.merge_cells("B3:F3")
+    worksheet.merge_cells("B4:F4")
+    worksheet.merge_cells("B5:F5")
     worksheet["B1"] = "Pocket Money Management System"
     worksheet["B1"].font = Font(name="Arial", size=16, bold=True, color="092D72")
-    worksheet["B2"] = "Monthly Financial Report"
+    worksheet["B2"] = dataset["report_title"]
     worksheet["B2"].font = Font(name="Arial", size=12, bold=True, color="245CFF")
     worksheet["B3"] = f"Month: {dataset['month']}"
     worksheet["B3"].font = Font(name="Arial", size=10, color="385A91")
+    worksheet["B4"] = "Main Balances: " + (", ".join(dataset["main_balance_names"]) or "None")
+    worksheet["B4"].font = Font(name="Arial", size=10, color="385A91")
+    worksheet["B5"] = "Sub-Balances: " + (", ".join(dataset["sub_balance_names"]) or "None")
+    worksheet["B5"].font = Font(name="Arial", size=10, color="385A91")
     worksheet.row_dimensions[1].height = 38
     worksheet.row_dimensions[2].height = 23
     worksheet.row_dimensions[3].height = 20
-    worksheet.row_dimensions[4].height = 10
+    worksheet.row_dimensions[4].height = 30
+    worksheet.row_dimensions[5].height = 30
+    worksheet.row_dimensions[6].height = 10
     worksheet.column_dimensions["A"].width = 21
 
     logo_path = Path(settings.BASE_DIR) / "static" / "images" / "pmms-logo.jpg"
@@ -313,7 +412,7 @@ def build_report_xlsx(dataset):
     logo.height = 60
     worksheet.add_image(logo, "A1")
 
-    header_row = 5
+    header_row = 7
     header_fill = PatternFill("solid", fgColor="092D72")
     odd_fill = PatternFill("solid", fgColor="F2F7FF")
     even_fill = PatternFill("solid", fgColor="FFFFFF")
@@ -372,7 +471,7 @@ def build_report_xlsx(dataset):
 
     last_column = get_column_letter(len(CSV_COLUMNS))
     last_row = max(header_row, worksheet.max_row)
-    worksheet.freeze_panes = "A6"
+    worksheet.freeze_panes = "A8"
     worksheet.auto_filter.ref = f"A{header_row}:{last_column}{last_row}"
     worksheet.print_title_rows = f"1:{header_row}"
     worksheet.page_setup.orientation = "landscape"
@@ -391,6 +490,7 @@ def build_report_xlsx(dataset):
 
 def build_report_pdf(dataset):
     """Render a printable PDF from the same structured dataset as the web report."""
+    _register_pdf_fonts()
     buffer = BytesIO()
     document = SimpleDocTemplate(
         buffer,
@@ -399,9 +499,14 @@ def build_report_pdf(dataset):
         leftMargin=0.65 * inch,
         topMargin=0.65 * inch,
         bottomMargin=0.65 * inch,
-        title=f"PMMS Monthly Financial Report — {dataset['month']}",
+        title=f"PMMS {dataset['report_title']} — {dataset['month']}",
     )
     styles = getSampleStyleSheet()
+    for style_name, style in styles.byName.items():
+        if "Bold" in style_name or "Heading" in style_name or "Title" in style_name:
+            style.fontName = PDF_ENGLISH_BOLD_FONT
+        else:
+            style.fontName = PDF_ENGLISH_FONT
     styles["Title"].textColor = colors.HexColor("#092d72")
     styles["Heading2"].textColor = colors.HexColor("#092d72")
     styles["Heading3"].textColor = colors.HexColor("#245cff")
@@ -425,7 +530,7 @@ def build_report_pdf(dataset):
                 logo,
                 [
                     Paragraph("Pocket Money Management System", brand_style),
-                    Paragraph("Monthly Financial Report", report_style),
+                    _pdf_paragraph(dataset["report_title"], report_style),
                 ],
             ]],
             colWidths=[1.75 * inch, 5.25 * inch],
@@ -443,7 +548,15 @@ def build_report_pdf(dataset):
             ),
         ),
         Spacer(1, 12),
-        Paragraph(f"Month: {escape(dataset['month'])}", styles["Heading2"]),
+        _pdf_paragraph(f"Month: {dataset['month']}", styles["Heading2"]),
+        _pdf_paragraph(
+            "Main Balances: " + (", ".join(dataset["main_balance_names"]) or "None"),
+            styles["BodyText"],
+        ),
+        _pdf_paragraph(
+            "Sub-Balances: " + (", ".join(dataset["sub_balance_names"]) or "None"),
+            styles["BodyText"],
+        ),
         Spacer(1, 8),
         Paragraph("Monthly Overview", styles["Heading2"]),
         Paragraph(f"Total Main Balances: {dataset['total_main_balances']}", styles["BodyText"]),
@@ -478,8 +591,8 @@ def build_report_pdf(dataset):
         balance = record["main_balance"]
         story.extend(
             [
-                Paragraph(
-                    f"Main Balance: {escape(record['display_name'])}",
+                _pdf_paragraph(
+                    f"Main Balance: {record['display_name']}",
                     styles["Heading2"],
                 ),
                 Paragraph("Money Entries", styles["Heading3"]),
@@ -488,7 +601,7 @@ def build_report_pdf(dataset):
         entry_rows = [["Category", "Amount"]]
         entry_rows.extend(
             [
-                [escape(entry.category or "Income"), format_mmk(entry.amount)]
+                [entry.category or "Income", format_mmk(entry.amount)]
                 for entry in record["money_entries"]
             ]
         )
@@ -499,7 +612,7 @@ def build_report_pdf(dataset):
         income_rows = [["Income Category", "Income Amount", "Entries"]]
         income_rows.extend(
             [
-                escape(item["category_name"]),
+                item["category_name"],
                 format_mmk(item["amount"]),
                 str(item["entry_count"]),
             ]
@@ -546,7 +659,7 @@ def build_report_pdf(dataset):
         sub_rows = [["Name", "Allocated", "Spent", "Remaining", "Transactions"]]
         sub_rows.extend(
             [
-                escape(item["name"]),
+                item["name"],
                 format_mmk(item["allocated_amount"]),
                 format_mmk(item["total_actual_spent"]),
                 format_mmk(item["remaining_balance"]),
@@ -572,8 +685,8 @@ def build_report_pdf(dataset):
             ]
             category_rows.extend(
                 [
-                    escape(category["name"]),
-                    escape(category["basis"]),
+                    category["name"],
+                    category["basis"],
                     format_mmk(category["allocated_amount"]),
                     format_mmk(category["actual_amount"]),
                     format_mmk(category["remaining_balance"]),
@@ -584,8 +697,8 @@ def build_report_pdf(dataset):
                 category_rows.append(["No category allocations.", "", "", "", ""])
             story.extend(
                 [
-                    Paragraph(
-                        f"{escape(sub_balance['name'])} Category Balances",
+                    _pdf_paragraph(
+                        f"{sub_balance['name']} Category Balances",
                         styles["Heading3"],
                     ),
                     _report_table(category_rows),
@@ -600,8 +713,8 @@ def build_report_pdf(dataset):
         main_transaction_rows.extend(
             [
                 transaction["date"].isoformat(),
-                escape(transaction["category_name"]),
-                escape(transaction["note"] or "—"),
+                transaction["category_name"],
+                transaction["note"] or "—",
                 format_mmk(transaction["amount"]),
             ]
             for transaction in record["main_transactions"]
@@ -616,8 +729,8 @@ def build_report_pdf(dataset):
         )
         for sub_balance in record["sub_balance_details"]:
             story.append(
-                Paragraph(
-                    f"{escape(sub_balance['name'])}: "
+                _pdf_paragraph(
+                    f"{sub_balance['name']}: "
                     f"{format_mmk(sub_balance['total_actual_spent'])} spent; "
                     f"{format_mmk(sub_balance['remaining_balance'])} remaining; "
                     f"{sub_balance['transaction_count']} transactions",
@@ -630,8 +743,8 @@ def build_report_pdf(dataset):
             sub_transaction_rows.extend(
                 [
                     transaction["date"].isoformat(),
-                    escape(transaction["category_name"]),
-                    escape(transaction["note"] or "—"),
+                    transaction["category_name"],
+                    transaction["note"] or "—",
                     format_mmk(transaction["amount"]),
                 ]
                 for transaction in sub_balance["transactions"]
@@ -675,6 +788,7 @@ def build_report_pdf(dataset):
     story.append(_report_table(summary_rows))
     def paint_report_page(canvas, _document):
         canvas.saveState()
+        canvas.setFont(PDF_ENGLISH_FONT, 10)
         canvas.setFillColor(colors.HexColor("#e7f0ff"))
         canvas.rect(0, 0, letter[0], letter[1], fill=1, stroke=0)
         canvas.setFillColor(colors.HexColor("#245cff"))
@@ -696,6 +810,39 @@ def build_report_pdf(dataset):
 
 
 def _report_table(rows):
+    header_style = ParagraphStyle(
+        "MyanmarTableHeader",
+        fontName=PDF_ENGLISH_BOLD_FONT,
+        fontSize=12,
+        leading=13,
+        textColor=colors.HexColor("#092d72"),
+    )
+    body_style = ParagraphStyle(
+        "MyanmarTableBody",
+        fontName=PDF_ENGLISH_FONT,
+        fontSize=11,
+        leading=13,
+        textColor=colors.HexColor("#183263"),
+    )
+    shaped_header_style = header_style.clone("MyanmarReportTableHeader")
+    shaped_header_style.fontName = PDF_MYANMAR_BOLD_FONT
+    shaped_header_style.shaping = 1
+    shaped_body_style = body_style.clone("MyanmarReportTableBody")
+    shaped_body_style.fontName = PDF_MYANMAR_FONT
+    shaped_body_style.shaping = 1
+
+    def make_cell_paragraph(cell, row_index):
+        text = _pdf_text(cell)
+        if _MYANMAR_RUN_RE.search(text):
+            style = shaped_header_style if row_index == 0 else shaped_body_style
+        else:
+            style = header_style if row_index == 0 else body_style
+        return Paragraph(escape(text), style)
+
+    rows = [
+        [make_cell_paragraph(cell, row_index) for cell in row]
+        for row_index, row in enumerate(rows)
+    ]
     table = Table(rows, repeatRows=1, hAlign="LEFT")
     table.setStyle(
         TableStyle(
@@ -703,8 +850,8 @@ def _report_table(rows):
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5efff")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#092d72")),
                 ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#183263")),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTNAME", (0, 0), (-1, 0), PDF_ENGLISH_BOLD_FONT),
+                ("FONTNAME", (0, 1), (-1, -1), PDF_ENGLISH_FONT),
                 ("FONTSIZE", (0, 0), (-1, 0), 12),
                 ("FONTSIZE", (0, 1), (-1, -1), 11),
                 ("LEADING", (0, 0), (-1, -1), 13),

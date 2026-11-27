@@ -1167,6 +1167,7 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
 
     def test_update_expense_amount_from_dashboard(self):
         category = self.budget_month.categories.get(period_index=1)
+        updated_category = self.budget_month.categories.get(period_index=2)
         expense = DailyExpense.objects.create(
             budget_month=self.budget_month,
             category=category,
@@ -1180,6 +1181,8 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
             {
                 "action": "update_expense",
                 "expense_id": expense.id,
+                "category": updated_category.id,
+                "expense_date": "2026-08-15",
                 "amount": "50000",
                 "note": "Groceries updated",
             },
@@ -1187,6 +1190,8 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         expense.refresh_from_db()
+        self.assertEqual(expense.category_id, updated_category.id)
+        self.assertEqual(expense.expense_date.isoformat(), "2026-08-15")
         self.assertEqual(expense.amount, Decimal("50000"))
         self.assertEqual(expense.note, "Groceries updated")
 
@@ -1204,8 +1209,14 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="action" value="update_expense"')
+        self.assertContains(response, '<dialog id="edit-expense-dialog"')
+        self.assertContains(response, 'id="edit-expense-category"')
+        self.assertContains(response, 'id="edit-expense-date"')
         self.assertContains(response, 'id="edit-expense-amount"')
+        self.assertContains(response, 'id="edit-expense-note"')
         self.assertContains(response, 'id="edit-expense-id"')
+        self.assertContains(response, "Show / hide expense records")
+        self.assertContains(response, "Show / hide budget comparison")
 
     def test_delete_expense_from_dashboard(self):
         category = self.budget_month.categories.get(period_index=1)
@@ -1339,6 +1350,42 @@ class DashboardBudgetAndExtraMoneyTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(SubBalance.objects.filter(name="Unauthorized").exists())
         self.assertTrue(response.context["sub_balance_form"].has_error("budget_month"))
+
+    def test_additional_expense_rows_accept_optional_date_and_notes(self):
+        category = self.budget_month.categories.get(period_index=1)
+        page = self.client.get(
+            reverse("budget:dashboard"),
+            {"tab": "expenses", "expense_type": "main"},
+        )
+        self.assertContains(page, f'value="{timezone.localdate().isoformat()}"')
+        self.assertNotContains(page, "Create a custom category")
+        self.assertContains(page, 'id="add-daily-expense-row"')
+
+        response = self.client.post(
+            f"{reverse('budget:dashboard')}?tab=expenses&expense_type=main",
+            {
+                "action": "add_expense",
+                "expense_type": "main",
+                "budget_month": self.budget_month.id,
+                "budget_period_choice": "2026-08",
+                "main_balance_choice": "name:",
+                "wallet_group_choice": str(self.balance.id),
+                "category": [str(category.id), ""],
+                "category_name": ["", "Transport"],
+                "amount": ["1500", "2500"],
+                "expense_date": ["2026-08-05", "2026-08-06"],
+                "note": ["Market", ""],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        first = DailyExpense.objects.get(note="Market")
+        second = DailyExpense.objects.get(category__name="Transport")
+        self.assertEqual(first.expense_date.isoformat(), "2026-08-05")
+        self.assertEqual(first.amount, Decimal("1500"))
+        self.assertEqual(second.expense_date.isoformat(), "2026-08-06")
+        self.assertEqual(second.amount, Decimal("2500"))
+        self.assertIsNone(second.note)
 
     def test_dashboard_records_actual_money_for_selected_sub_balance(self):
         sub_balance = SubBalance.objects.create(
@@ -3567,7 +3614,7 @@ class ReportExportWorkflowTests(TestCase):
             follow=True,
         )
 
-        self.assertContains(response, f"Monthly report sent to {self.auth_user.email}.")
+        self.assertContains(response, f"Main Balance report sent to {self.auth_user.email}.")
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, [self.auth_user.email])
         self.assertIn("Pocket Money Report", mail.outbox[0].subject)
@@ -3615,6 +3662,42 @@ class ReportExportWorkflowTests(TestCase):
         self.assertIn("5,000 MMK", html)
         self.assertIn("20,000 MMK", html)
 
+    def test_pdf_markup_keeps_myanmar_private_use_glyphs_in_shaped_run(self):
+        from budget.services.report_export_service import _pdf_markup
+
+        myanmar_text = "မိတ\ue010\ue2f2\u200dဆွ"
+
+        self.assertEqual(
+            _pdf_markup(f"Copy: {myanmar_text}"),
+            f'Copy: <font name="Pyidaungsu">{myanmar_text}</font>',
+        )
+
+    def test_pdf_markup_replaces_the_reported_myanmar_placeholder(self):
+        from budget.services.report_export_service import _pdf_markup
+
+        self.assertEqual(
+            _pdf_markup("\uffff" * 9),
+            '<font name="Pyidaungsu">ကတ်လောင်း</font>',
+        )
+
+    def test_report_table_shapes_myanmar_without_shaping_dates(self):
+        from budget.services.report_export_service import (
+            _register_pdf_fonts,
+            _report_table,
+        )
+
+        _register_pdf_fonts()
+        table = _report_table(
+            [["Transaction Date", "Category"], ["2026-11-25", "\uffff" * 9]]
+        )
+
+        date_style = table._cellvalues[1][0].style
+        myanmar_style = table._cellvalues[1][1].style
+        self.assertEqual(date_style.fontName, "Helvetica")
+        self.assertFalse(date_style.shaping)
+        self.assertEqual(myanmar_style.fontName, "Pyidaungsu")
+        self.assertTrue(myanmar_style.shaping)
+
     def test_pdf_generation_returns_a_viewable_pdf_for_selected_balances(self):
         response = self.client.post(
             reverse("budget:reports"),
@@ -3630,6 +3713,7 @@ class ReportExportWorkflowTests(TestCase):
         self.assertIn("inline;", response["Content-Disposition"])
         self.assertTrue(response.content.startswith(b"%PDF-"))
         self.assertIn(b"/Subtype /Image", response.content)
+        self.assertIn(b"/BaseFont /Helvetica", response.content)
 
     def test_xlsx_export_includes_branding_image_and_project_colors(self):
         from openpyxl import load_workbook

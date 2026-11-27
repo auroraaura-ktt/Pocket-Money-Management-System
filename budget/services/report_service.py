@@ -1,6 +1,6 @@
 """Report generation: compare category budgets vs actual spending."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
@@ -46,6 +46,9 @@ class MonthlyReport:
     period_reports: list[CategoryComparison]
     zero_spend_periods: list[str]
     sub_balance_rows: list[dict]
+    main_balance_names: list[str] = field(default_factory=list)
+    sub_balance_names: list[str] = field(default_factory=list)
+    report_title: str = "Monthly Financial Report"
 
     @property
     def total_actual_spent(self) -> Decimal:
@@ -434,4 +437,14 @@ def generate_monthly_report(
         period_reports=period_reports,
         zero_spend_periods=zero_spend_periods,
         sub_balance_rows=sub_balance_rows,
+        main_balance_names=[
+            item.name or item.category or "Main Balance"
+            for item in BudgetMonth.objects.filter(pk__in=monthly_month_ids).order_by("id")
+        ],
+        sub_balance_names=[row["name"] for row in sub_balance_rows],
+        report_title=(
+            "Monthly Financial Report"
+            if aggregate_same_month
+            else "Main Balance Financial Report"
+        ),
     )

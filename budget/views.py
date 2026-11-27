@@ -1839,6 +1839,7 @@ def dashboard(request):
         expense_initial["budget_period_choice"] = selected_expense_period
         expense_initial["main_balance_choice"] = selected_main_balance_key
         expense_initial["wallet_group_choice"] = selected_wallet_group_key
+    expense_initial["expense_date"] = timezone.localdate()
     if selected_sub_balance:
         expense_initial["sub_balance"] = selected_sub_balance
     category_initial = {}
@@ -1874,6 +1875,7 @@ def dashboard(request):
         **expense_form_options,
         sub_balance_required=expense_type == "sub",
     )
+    expense_form.fields["expense_date"].required = False
     category_update_form = CategoryBudgetUpdateForm(
         month_qs=month_qs, category_qs=category_qs
     )
@@ -2274,16 +2276,77 @@ def dashboard(request):
                 budget_month_obj = month_qs.filter(pk=month_id).first()
                 if budget_month_obj:
                     create_default_period_categories(budget_month_obj)
-            expense_form = DailyExpenseForm(
-                request.POST,
-                **expense_form_options,
-                sub_balance_required=expense_type == "sub",
-            )
-            if expense_form.is_valid():
+            category_values = request.POST.getlist("category")
+            category_names = request.POST.getlist("category_name")
+            amount_values = request.POST.getlist("amount")
+            date_values = request.POST.getlist("expense_date")
+            note_values = request.POST.getlist("note")
+            if len(date_values) == 1 and len(category_values) > 1:
+                date_values *= len(category_values)
+            if len(note_values) == 1 and len(category_values) > 1:
+                note_values *= len(category_values)
+            date_values.extend([""] * (len(category_values) - len(date_values)))
+            note_values.extend([""] * (len(category_values) - len(note_values)))
+            shared_data = request.POST.copy()
+            shared_data.pop("category", None)
+            shared_data.pop("category_name", None)
+            shared_data.pop("amount", None)
+            shared_data.pop("expense_date", None)
+            shared_data.pop("note", None)
+            expense_forms = []
+            if len(category_names) < len(category_values):
+                category_names.extend([""] * (len(category_values) - len(category_names)))
+            valid_batch = bool(category_values) and len(category_values) == len(amount_values)
+            if valid_batch:
+                for category_value, category_name, amount_value, expense_date_value, note_value in zip(
+                    category_values, category_names, amount_values, date_values, note_values
+                ):
+                    row_data = shared_data.copy()
+                    month_for_category = month_qs.filter(pk=month_id).first() if month_id else None
+                    sub_balance_id = row_data.get("sub_balance")
+                    category_obj = None
+                    if category_name.strip():
+                        name_query = BudgetCategory.objects.filter(
+                            budget_month=month_for_category,
+                            sub_balance_id=sub_balance_id or None,
+                            name__iexact=category_name.strip(),
+                        )
+                        category_obj = name_query.first()
+                        if category_obj is None and month_for_category:
+                            category_obj = BudgetCategory.objects.create(
+                                budget_month=month_for_category,
+                                sub_balance_id=sub_balance_id or None,
+                                name=category_name.strip(),
+                                estimated_amount=0,
+                                period_index=None,
+                            )
+                        row_data["category"] = str(category_obj.pk) if category_obj else category_value
+                    else:
+                        row_data["category"] = category_value
+                    row_data["amount"] = amount_value
+                    if expense_date_value.strip():
+                        row_data["expense_date"] = expense_date_value
+                    else:
+                        row_data["expense_date"] = timezone.localdate().isoformat()
+                    row_data["note"] = note_value
+                    row_form = DailyExpenseForm(row_data, **expense_form_options, sub_balance_required=expense_type == "sub")
+                    row_form.fields["expense_date"].required = False
+                    if not row_form.is_valid():
+                        valid_batch = False
+                        expense_form = row_form
+                        break
+                    expense_forms.append(row_form)
+            else:
+                expense_form = DailyExpenseForm(shared_data, **expense_form_options, sub_balance_required=expense_type == "sub")
+                expense_form.add_error(None, "Add at least one category and amount.")
+            if valid_batch:
                 try:
                     with transaction.atomic():
-                        expense = expense_form.save()
-                        record_audit_event(
+                        expenses_created = []
+                        for row_form in expense_forms:
+                            expense = row_form.save()
+                            expenses_created.append(expense)
+                            record_audit_event(
                             actor=request.user,
                             owner=pocket_user,
                             action="created_expense",
@@ -2296,7 +2359,7 @@ def dashboard(request):
                             main_balance=expense.budget_month,
                             sub_balance=expense.sub_balance,
                             after=_daily_expense_audit_state(expense),
-                        )
+                            )
                 except Exception:
                     logger.exception("Failed to record expense audit event")
                     messages.error(
@@ -2308,17 +2371,13 @@ def dashboard(request):
                     )
                 # Auto-send the category report email once the user has
                 # recorded actual spending for this category.
-                try:
-                    send_category_report_email(expense.category)
-                except Exception:
-                    logger.exception(
-                        "Failed to send category email for %s",
-                        expense.category.name,
-                    )
-                messages.success(
-                    request,
-                    f"Expense recorded under {expense.category.name}.",
-                )
+                for expense in expenses_created:
+                    try:
+                        send_category_report_email(expense.category)
+                    except Exception:
+                        logger.exception("Failed to send category email for %s", expense.category.name)
+                messages.success(request, f"{len(expenses_created)} expense entries recorded.")
+                expense = expenses_created[-1]
                 return _expense_dashboard_redirect(
                     expense_type,
                     expense.budget_month_id,
@@ -2466,16 +2525,36 @@ def dashboard(request):
                 budget_month_obj = month_qs.filter(pk=month_id).first()
                 if budget_month_obj:
                     create_default_period_categories(budget_month_obj)
-            unexpected_money_form = UnexpectedMoneyForm(
-                request.POST, month_qs=month_qs, category_qs=category_qs
-            )
-            if unexpected_money_form.is_valid():
-                extra_money = unexpected_money_form.save()
-                messages.success(
-                    request,
-                    f"Extra money recorded for {extra_money.category.name}: "
-                    f"{extra_money.amount} MMK.",
+            category_names = request.POST.getlist("category_name")
+            amounts = request.POST.getlist("amount")
+            shared_data = request.POST.copy()
+            shared_data.pop("category_name", None)
+            shared_data.pop("category", None)
+            shared_data.pop("amount", None)
+            saved_entries = []
+            valid_batch = bool(category_names) and len(category_names) == len(amounts)
+            if valid_batch:
+                for category_name, amount in zip(category_names, amounts):
+                    row_data = shared_data.copy()
+                    row_data["new_category_name"] = category_name.strip()
+                    row_data["amount"] = amount
+                    form = UnexpectedMoneyForm(
+                        row_data, month_qs=month_qs, category_qs=category_qs
+                    )
+                    if not form.is_valid():
+                        valid_batch = False
+                        unexpected_money_form = form
+                        break
+                    saved_entries.append(form)
+            else:
+                unexpected_money_form = UnexpectedMoneyForm(
+                    shared_data, month_qs=month_qs, category_qs=category_qs
                 )
+                unexpected_money_form.add_error(None, "Add at least one category and balance.")
+            if valid_batch:
+                with transaction.atomic():
+                    created = [form.save() for form in saved_entries]
+                messages.success(request, f"{len(created)} unexpected money entr{'y' if len(created) == 1 else 'ies'} recorded.")
                 return _dashboard_redirect("expenses")
 
         elif action == "finish_month":
@@ -2485,7 +2564,9 @@ def dashboard(request):
                 messages.error(request, "Select a valid month for the report.")
                 return _dashboard_redirect("expenses")
             try:
-                report = generate_monthly_report(budget_month.id)
+                report = generate_monthly_report(
+                    budget_month.id, aggregate_same_month=False
+                )
             except (ValueError, ArithmeticError, DatabaseError):
                 logger.exception("Unable to generate Finish report for %s", budget_month.id)
                 messages.error(request, "This month's data could not be validated for reporting.")
@@ -2505,7 +2586,7 @@ def dashboard(request):
                     budget_month=budget_month,
                     report_type=ReportEmailLog.FINISH,
                 )
-                messages.success(request, f"Monthly report sent to {pocket_user.email}.")
+                messages.success(request, f"Main Balance report sent to {pocket_user.email}.")
             else:
                 messages.error(request, "The report email could not be sent. Please try again later.")
             return redirect(f"{reverse('budget:dashboard')}?tab=expenses&expense_month={budget_month.id}")
@@ -2535,11 +2616,16 @@ def dashboard(request):
         ),
     )
     categories = category_qs.order_by("budget_month", "period_index", "id")
-    expenses = DailyExpense.objects.filter(
-        budget_month__user=pocket_user
-    ).select_related("category", "budget_month", "sub_balance").order_by(
-        "-expense_date", "-id"
-    )
+    # Only load expenses when viewing the expenses tab, filtered by the selected
+    # month up front to avoid scanning all historical records across all months.
+    if tab == "expenses" and selected_expense_month:
+        expenses = DailyExpense.objects.filter(
+            budget_month=selected_expense_month
+        ).select_related("category", "budget_month", "sub_balance").order_by(
+            "-expense_date", "-id"
+        )
+    else:
+        expenses = DailyExpense.objects.none()
     expense_debug_rows = []
 
     expense_comparison_month = None
@@ -2557,7 +2643,6 @@ def dashboard(request):
                 aggregate_same_month=False,
             )
             period_comparisons = expense_report.period_reports
-            expenses = expenses.filter(budget_month_id=expense_comparison_month.id)
             if expense_type == "sub":
                 expenses = expenses.filter(sub_balance__isnull=False)
                 if selected_sub_balance:
@@ -2882,7 +2967,7 @@ def reports(request):
                             "The report could not be generated. Please try again.",
                         )
                         report_dataset = None
-                except (ValueError, ArithmeticError, OSError, DatabaseError):
+                except (ValueError, ArithmeticError, OSError, DatabaseError, RuntimeError):
                     logger.exception(
                         "Unable to generate monthly report for %s",
                         selected_month_key,
@@ -2896,6 +2981,8 @@ def reports(request):
                     else:
                         error_message = "The report could not be generated. Please try again."
                     messages.error(request, error_message)
+                    if action in ("pdf", "pdf_download"):
+                        return redirect(f"{request.path}?month={selected_month_key}")
 
     elif request.method == "GET":
         legacy_month_id = request.GET.get("budget_month")
